@@ -17,5 +17,5 @@ default is mouse
 on mouse back and foword to activate
 for more things add argument --help
 
-### If crash nead to add to your user input group
+### If crash nead to add to your user, input group
 ```sudo usermod -aG input $USER```
