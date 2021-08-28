@@ -7,7 +7,8 @@ nead rust for install
 ```sudo pacman -S rustup``` <br>
 ```rustup toolchain install stable``` <br>
 ### on any unix os:
-```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh```
+```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh``` <br>
+```rustup toolchain install stable``` <br>
 
 ```cargo build --relase```
 
