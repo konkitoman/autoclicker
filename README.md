@@ -16,7 +16,7 @@ You need to have rust installed
 ```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh```
 ```rustup toolchain install stable```
 
-```cargo build --relase```
+```cargo build --release```
 
 ## To run ./theclicker
 
