@@ -2,6 +2,7 @@ use std::{
     fs::{self, File},
     io::{self, Write},
     path::PathBuf,
+    process::exit,
 };
 
 use input_linux::{EvdevHandle, EventKind, InputId, Key, UInputHandle};
@@ -23,11 +24,18 @@ pub struct Device {
 }
 impl Device {
     pub fn dev_open(path: PathBuf) -> Result<Self, String> {
-        let file = File::open(&path).unwrap();
+        let file = match File::open(&path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Error: {}", err);
+                println!("Invalid device OR Not having access to the file, try as root!");
+                exit(1);
+            }
+        };
         let handler = EvdevHandle::new(file);
 
         if !handler.event_bits().unwrap().get(EventKind::Key) {
-            return Err(String::from("Un valabile device!"));
+            return Err(String::from("Unavailable device!"));
         }
 
         let name_bytes = handler.device_name().unwrap();
@@ -41,10 +49,14 @@ impl Device {
         })
     }
     pub fn uinput_open(path: PathBuf, name: &str) -> Result<Self, String> {
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(path.clone())
-            .unwrap();
+        let file = match fs::OpenOptions::new().write(true).open(&path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Error: {}", err);
+                println!("Not having access to create device, try as root!");
+                exit(1);
+            }
+        };
         let handler = UInputHandle::new(file);
 
         Ok(Self {
