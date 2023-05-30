@@ -159,7 +159,7 @@ impl Device {
                     .unwrap();
                 let buffer = base64::encode(devices[num].path.to_str().unwrap());
                 let buffer = buffer.as_bytes();
-                cache_file.write(buffer).unwrap();
+                cache_file.write_all(buffer).unwrap();
                 return device;
             }
         }

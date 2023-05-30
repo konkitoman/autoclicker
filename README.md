@@ -1,10 +1,19 @@
 # Simple cli autoclicker for linux
+[![Crates.io](https://img.shields.io/crates/v/theclicker.svg)](https://crates.io/crates/theclicker)
 
-Working on xorg and wayland
+Working on xorg and wayland.
+
+Is using uinput and evdev!
+
+## Running
+![Running](images/running.png)
+
+## Install
+```cargo install theclicker```
 
 ## Build
 
-You need to have rust installed
+You need to have rust installed!
 
 ### On ArchLinux
 
@@ -20,10 +29,14 @@ You need to have rust installed
 
 ## To run ./theclicker
 
-select your mouse or keyboard,
-default is mouse
-on mouse back and foword to activate
-for more things add argument --help
+Select your mouse or keyboard.
+Default binds are for mouse!
+On mouse back or forword to activate left or right clicker!
+
+You can use --find-keycodes to find what keycode you are pressing!
+You can use --left-bind or --right-bind to set on what keycode the clicker will activate!
+
+You can use --help to see more!
 
 ### If crash
 
