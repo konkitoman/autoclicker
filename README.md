@@ -44,4 +44,20 @@ Is posibile to not work on any distribution: ```sudo usermod -aG input $USER```
 
 OR
 
-```sudo ./theclicker```
+```sudo theclicker```
+
+IF ```sudo theclicker``` RETURNS `sudo: theclicker: command not found`
+
+You should edit you'r /etc/sudoers
+if you can find
+
+`Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"`
+
+You should commented like
+
+`#Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"`
+
+
+And the same thing for
+
+`Defaults        env_reset`
