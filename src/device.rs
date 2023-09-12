@@ -3,9 +3,13 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     process::exit,
+    time::SystemTime,
 };
 
-use input_linux::{EvdevHandle, EventKind, InputId, Key, UInputHandle};
+use input_linux::{
+    EvdevHandle, EventKind, EventTime, InputEvent, InputId, Key, KeyEvent, KeyState,
+    SynchronizeEvent, UInputHandle,
+};
 use input_linux_sys::{input_event, BUS_USB};
 
 const VENDOR: u16 = 0x3232;
@@ -22,6 +26,7 @@ pub struct Device {
     pub path: PathBuf,
     handler: UInputOrDev,
 }
+
 impl Device {
     pub fn dev_open(path: PathBuf) -> Result<Self, String> {
         let file = match File::open(&path) {
@@ -39,7 +44,6 @@ impl Device {
         }
 
         let name_bytes = handler.device_name().unwrap();
-
         let name = std::str::from_utf8(&name_bytes).unwrap();
 
         Ok(Self {
@@ -48,6 +52,7 @@ impl Device {
             name: name.to_string(),
         })
     }
+
     pub fn uinput_open(path: PathBuf, name: &str) -> Result<Self, String> {
         let file = match fs::OpenOptions::new().write(true).open(&path) {
             Ok(file) => file,
@@ -57,6 +62,7 @@ impl Device {
                 exit(1);
             }
         };
+
         let handler = UInputHandle::new(file);
 
         Ok(Self {
@@ -65,7 +71,8 @@ impl Device {
             name: name.to_string(),
         })
     }
-    pub fn add_mouse_atributes(&self) {
+
+    pub fn add_mouse_attributes(&self) {
         match &self.handler {
             UInputOrDev::Uinput(mouse) => {
                 mouse.set_evbit(EventKind::Key).unwrap();
@@ -79,6 +86,7 @@ impl Device {
             }
         }
     }
+
     pub fn create(&self) {
         match &self.handler {
             UInputOrDev::Uinput(device) => {
@@ -105,6 +113,7 @@ impl Device {
             UInputOrDev::DevInput(device) => device.read(events),
         }
     }
+
     pub fn write(&self, events: &[input_event]) -> io::Result<usize> {
         match &self.handler {
             UInputOrDev::Uinput(device) => device.write(events),
@@ -141,10 +150,12 @@ impl Device {
                     continue;
                 }
             };
-            if num > devices.len() {
+
+            if num >= devices.len() {
                 println!("Is to large!");
                 continue;
             }
+
             println!("Device selected: {}, Is Ok [Y/n]", devices[num].name);
             print!("-> ");
             std::io::stdout().flush().unwrap();
@@ -164,4 +175,25 @@ impl Device {
             }
         }
     }
+
+    pub fn send_key(&self, key: Key, state: KeyState) {
+        let events: [input_event; 2] = [
+            InputEvent::from(KeyEvent::new(get_current_time(), key, state))
+                .as_raw()
+                .to_owned(),
+            InputEvent::from(SynchronizeEvent::report(get_current_time()))
+                .as_raw()
+                .to_owned(),
+        ];
+        self.write(&events)
+            .expect("Cannot send key event: {events:?}");
+    }
+}
+
+pub fn get_current_time() -> EventTime {
+    let time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap();
+
+    EventTime::new(time.as_secs() as i64, time.as_micros() as i64)
 }
