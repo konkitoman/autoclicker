@@ -258,7 +258,7 @@ fn main() {
                         let num = match arg.trim().parse::<u64>() {
                             Ok(num) => num,
                             Err(_) => {
-                                eprintln!("Specifi a number!");
+                                eprintln!("Specify a number!");
                                 exit(1);
                             }
                         };
@@ -270,7 +270,7 @@ fn main() {
                 }
                 "--help" => {
                     println!("--clear-cache for cleaning the cache!");
-                    println!("--cooldown [num] for set the cooldown!");
+                    println!("--cooldown [num] for set the cooldown in milliseconds!");
                     println!("--left-bind [keycode] bind left autoclicker to keycode");
                     println!("--right-bind [keycode] bind right autoclicker to keycode");
                     println!("--find-keycodes for finding what key is press");
@@ -324,7 +324,7 @@ fn main() {
     let state = State::new(cooldown, debug, find_keycodes, left_bind, right_bind);
     println!("Launched!\n");
 
-    println!("Cooldown is set to {}!", cooldown);
+    println!("Cooldown is set to {}ms!", cooldown);
 
     state.main_loop();
 }
