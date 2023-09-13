@@ -6,6 +6,7 @@ use std::{
     time::SystemTime,
 };
 
+use base64::prelude::*;
 use input_linux::{
     EvdevHandle, EventKind, EventTime, InputEvent, InputId, Key, KeyEvent, KeyState,
     SynchronizeEvent, UInputHandle,
@@ -136,6 +137,7 @@ impl Device {
                 .filter_map(|entry| Device::dev_open(entry.path()).ok())
                 .collect::<Vec<Device>>();
 
+            println!("Select input device: ");
             for device in devices.iter().enumerate() {
                 println!("{}: Device: {}", device.0, device.1.name);
             }
@@ -168,7 +170,7 @@ impl Device {
                     .create(true)
                     .open("/tmp/TheClicker")
                     .unwrap();
-                let buffer = base64::encode(devices[num].path.to_str().unwrap());
+                let buffer = BASE64_STANDARD.encode(devices[num].path.to_str().unwrap());
                 let buffer = buffer.as_bytes();
                 cache_file.write_all(buffer).unwrap();
                 return device;

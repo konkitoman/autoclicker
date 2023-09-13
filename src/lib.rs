@@ -10,6 +10,7 @@ use std::{
 };
 
 use crate::device::Device;
+use base64::prelude::*;
 use input_linux::{Key, KeyState};
 use input_linux_sys::input_event;
 
@@ -42,17 +43,14 @@ impl State {
                 println!("Device loaded from cache!");
                 let mut buffer = vec![];
                 let length = file.read_to_end(&mut buffer).unwrap();
-                let buffer = base64::decode(&buffer[..length]).unwrap();
+                let buffer = BASE64_STANDARD.decode(&buffer[..length]).unwrap();
                 let content = String::from_utf8(buffer).unwrap();
                 let device = Device::dev_open(PathBuf::from(content)).unwrap();
                 println!("Device name: {}", device.name);
                 println!("For cleaning cache, you can add --clear-cache");
                 device
             }
-            Err(_) => {
-                println!("Select input device: ");
-                Device::select_device()
-            }
+            Err(_) => Device::select_device(),
         }
     }
 
