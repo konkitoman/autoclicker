@@ -23,6 +23,7 @@ fn main() {
 
     let state = State::new(
         parse.cooldown,
+        parse.cooldown_press_release,
         parse.debug,
         parse.find_keycodes,
         parse.left_bind,
@@ -31,6 +32,10 @@ fn main() {
     );
     println!("Launched!\n");
     println!("Cooldown is set to {}ms!", parse.cooldown);
+    println!(
+        "Cooldown between press and release is set to {}ms!",
+        parse.cooldown_press_release
+    );
 
     state.main_loop();
 }

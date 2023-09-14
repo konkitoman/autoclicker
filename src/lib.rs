@@ -32,6 +32,7 @@ pub struct State {
     right_auto_clicker_bind: u16,
 
     cooldown: Duration,
+    cooldown_pr: Duration,
     debug: bool,
     find_keycodes: bool,
 
@@ -58,6 +59,7 @@ impl State {
 
     pub fn new(
         cooldown: u64,
+        cooldown_pr: u64,
         debug: bool,
         find_keycodes: bool,
         l: u16,
@@ -82,6 +84,7 @@ impl State {
             debug,
             find_keycodes,
             beep,
+            cooldown_pr: Duration::from_millis(cooldown_pr),
         }
     }
     pub fn main_loop(self) {
@@ -172,10 +175,20 @@ impl State {
 
             if toggle.left {
                 output.send_key(Key::ButtonLeft, KeyState::PRESSED);
-                output.send_key(Key::ButtonLeft, KeyState::RELEASED);
             }
             if toggle.right {
                 output.send_key(Key::ButtonRight, KeyState::PRESSED);
+            }
+
+            if !self.cooldown_pr.is_zero() {
+                thread::sleep(self.cooldown_pr);
+            }
+
+            if toggle.left {
+                output.send_key(Key::ButtonLeft, KeyState::RELEASED);
+            }
+
+            if toggle.right {
                 output.send_key(Key::ButtonRight, KeyState::RELEASED);
             }
             thread::sleep(self.cooldown);

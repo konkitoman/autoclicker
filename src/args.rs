@@ -11,6 +11,10 @@ pub struct Args {
     #[arg(short, long, default_value_t = 25)]
     pub cooldown: u64,
 
+    /// Set cooldown in milliseconds, between press and release
+    #[arg(short = 'C', long, default_value_t = 0)]
+    pub cooldown_press_release: u64,
+
     /// Bind left autoclicker to keycode
     #[arg(short, long, default_value_t = 275)]
     pub left_bind: u16,
