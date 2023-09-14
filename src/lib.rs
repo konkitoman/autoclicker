@@ -1,3 +1,4 @@
+pub mod args;
 mod device;
 
 use std::{
@@ -35,6 +36,7 @@ pub struct State {
 
     beep: bool,
 }
+
 impl State {
     fn try_from_cache() -> Device {
         match File::open("/tmp/TheClicker") {
