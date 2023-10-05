@@ -11,23 +11,9 @@ Is using uinput and evdev!
 ## Install
 ```cargo install theclicker```
 
-## Build
+## To run TheClicker
 
-You need to have rust installed!
-
-### On ArchLinux
-
-```sudo pacman -S rustup```
-```rustup toolchain install stable```
-
-### On any unix os
-
-```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh```
-```rustup toolchain install stable```
-
-```cargo build --release```
-
-## To run ./theclicker
+Run `theclicker`
 
 Select your mouse or keyboard.
 Default binds are for mouse!
@@ -38,7 +24,19 @@ You can use --left-bind or --right-bind to set on what keycode the clicker will 
 
 You can use --help to see more!
 
-### If crash
+## Build
+
+If you don't have Rust installed you can install rust from [rustup](https://rustup.rs/)
+
+You need to have the stable toolchain installed!
+
+Then run `cargo build --release`
+
+The binary will be in `./target/release/theclicker`
+
+# Problems?
+
+## If crash
 
 Is posibile to not work on any distribution: ```sudo usermod -aG input $USER```
 

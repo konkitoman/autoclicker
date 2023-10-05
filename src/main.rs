@@ -9,32 +9,41 @@ use theclicker::State;
 use crate::args::Args;
 
 fn main() {
-    let parse = Args::parse();
+    let Args {
+        clear_cache,
+        cooldown,
+        cooldown_press_release,
+        left_bind,
+        right_bind,
+        find_keycodes,
+        no_beep,
+        debug,
+        no_grab,
+    } = Args::parse();
 
-    let mut beep = true;
-
-    if parse.clear_cache {
+    if clear_cache {
         let _ = fs::remove_file("/tmp/TheClicker");
     }
 
-    if parse.no_beep {
-        beep = false;
-    }
+    let beep = !no_beep;
+    let grab = !no_grab;
 
-    let state = State::new(
-        parse.cooldown,
-        parse.cooldown_press_release,
-        parse.debug,
-        parse.find_keycodes,
-        parse.left_bind,
-        parse.right_bind,
+    let state = State::new(theclicker::StateArgs {
+        cooldown,
+        cooldown_press_release,
+        left_bind,
+        right_bind,
+        find_keycodes,
         beep,
-    );
-    println!("Launched!\n");
-    println!("Cooldown is set to {}ms!", parse.cooldown);
+        debug,
+        grab,
+    });
+
+    println!();
+    println!("Cooldown is {}ms!", cooldown);
     println!(
-        "Cooldown between press and release is set to {}ms!",
-        parse.cooldown_press_release
+        "Cooldown between press and release is {}ms!",
+        cooldown_press_release
     );
 
     state.main_loop();

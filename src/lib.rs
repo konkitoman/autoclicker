@@ -5,7 +5,7 @@ use std::{
     fs::File,
     io::{stdout, IsTerminal, Read},
     path::PathBuf,
-    sync::mpsc,
+    sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
@@ -24,9 +24,20 @@ pub struct ToggleStates {
     right: bool,
 }
 
+pub struct StateArgs {
+    pub cooldown: u64,
+    pub cooldown_press_release: u64,
+    pub left_bind: u16,
+    pub right_bind: u16,
+    pub find_keycodes: bool,
+    pub beep: bool,
+    pub debug: bool,
+    pub grab: bool,
+}
+
 pub struct State {
     mouse_input: Device,
-    mouse_output: Device,
+    mouse_output: Arc<Device>,
 
     left_auto_clicker_bind: u16,
     right_auto_clicker_bind: u16,
@@ -58,33 +69,42 @@ impl State {
     }
 
     pub fn new(
-        cooldown: u64,
-        cooldown_pr: u64,
-        debug: bool,
-        find_keycodes: bool,
-        l: u16,
-        r: u16,
-        beep: bool,
+        StateArgs {
+            cooldown,
+            cooldown_press_release,
+            left_bind,
+            right_bind,
+            find_keycodes,
+            beep,
+            debug,
+            grab,
+        }: StateArgs,
     ) -> Self {
         let mouse_input = Self::try_from_cache();
         let mouse_output = Device::uinput_open(PathBuf::from("/dev/uinput"), "ManClicker").unwrap();
         mouse_output.add_mouse_attributes();
-        mouse_output.create();
 
-        println!("Launching...");
+        if grab {
+            mouse_output.copy_attributes(&mouse_input);
+            mouse_input
+                .grab(true)
+                .expect("Cannot grab the input device!");
+        }
+
+        mouse_output.create();
 
         Self {
             mouse_input,
-            mouse_output,
+            mouse_output: Arc::new(mouse_output),
 
-            left_auto_clicker_bind: l,
-            right_auto_clicker_bind: r,
+            left_auto_clicker_bind: left_bind,
+            right_auto_clicker_bind: right_bind,
 
             cooldown: Duration::from_millis(cooldown),
             debug,
             find_keycodes,
             beep,
-            cooldown_pr: Duration::from_millis(cooldown_pr),
+            cooldown_pr: Duration::from_millis(cooldown_press_release),
         }
     }
     pub fn main_loop(self) {
@@ -92,6 +112,7 @@ impl State {
 
         let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
         let input = self.mouse_input;
+        let output = self.mouse_output.clone();
 
         let debug = self.debug;
         let find_keycodes = self.find_keycodes;
@@ -100,15 +121,15 @@ impl State {
         let right_bind = self.right_auto_clicker_bind;
 
         if let Ok(key) = Key::from_code(left_bind) {
-            println!("Left bind: code: {left_bind}, key: {key:?}");
+            println!("Left bind code: {left_bind}, key: {key:?}");
         } else {
-            println!("Left bind: code: {left_bind}");
+            println!("Left bind code: {left_bind}");
         }
 
         if let Ok(key) = Key::from_code(right_bind) {
-            println!("Right bind: code: {right_bind}, key: {key:?}");
+            println!("Right bind code: {right_bind}, key: {key:?}");
         } else {
-            println!("Right bind: code: {right_bind}");
+            println!("Right bind code: {right_bind}");
         }
 
         let mut states = ToggleStates::default();
@@ -129,12 +150,14 @@ impl State {
                     }
                 }
 
+                let mut used = false;
                 let pressed = event.value == 1;
                 if event.code == left_bind {
                     if pressed && !states.left && !find_keycodes {
                         transmitter.send(1).unwrap();
                     }
                     states.left = pressed;
+                    used = true;
                 }
 
                 if event.code == right_bind {
@@ -142,6 +165,13 @@ impl State {
                         transmitter.send(2).unwrap();
                     }
                     states.right = pressed;
+                    used = true;
+                }
+
+                if !used {
+                    output
+                        .write(&events)
+                        .expect("Cannot write to virtual device!");
                 }
             }
         });

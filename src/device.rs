@@ -88,6 +88,46 @@ impl Device {
         }
     }
 
+    /// Only copis attributes from DevInput to UInput
+    pub fn copy_attributes(&self, from: &Device) {
+        match (&self.handler, &from.handler) {
+            (UInputOrDev::Uinput(to), UInputOrDev::DevInput(from)) => {
+                if let Ok(bits) = from.event_bits() {
+                    for bit in bits.iter() {
+                        to.set_evbit(bit).unwrap();
+                    }
+                }
+
+                if let Ok(bits) = from.relative_bits() {
+                    for bit in bits.iter() {
+                        to.set_relbit(bit).unwrap();
+                    }
+                }
+
+                if let Ok(bits) = from.absolute_bits() {
+                    for bit in bits.iter() {
+                        to.set_absbit(bit).unwrap();
+                    }
+                }
+
+                if let Ok(bits) = from.misc_bits() {
+                    for bit in bits.iter() {
+                        to.set_mscbit(bit).unwrap();
+                    }
+                }
+
+                if let Ok(bits) = from.key_bits() {
+                    for bit in bits.iter() {
+                        to.set_keybit(bit).unwrap();
+                    }
+                }
+            }
+            _ => {
+                todo!()
+            }
+        }
+    }
+
     pub fn create(&self) {
         match &self.handler {
             UInputOrDev::Uinput(device) => {
@@ -119,6 +159,13 @@ impl Device {
         match &self.handler {
             UInputOrDev::Uinput(device) => device.write(events),
             UInputOrDev::DevInput(_) => todo!(),
+        }
+    }
+
+    pub fn grab(&self, grab: bool) -> io::Result<()> {
+        match &self.handler {
+            UInputOrDev::Uinput(_) => todo!(),
+            UInputOrDev::DevInput(device) => device.grab(grab),
         }
     }
 
