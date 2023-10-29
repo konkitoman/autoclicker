@@ -169,7 +169,7 @@ impl Device {
         }
     }
 
-    pub fn select_device() -> Device {
+    pub fn select_device(use_dev: String) -> Device {
         loop {
             let devices = fs::read_dir("/dev/input")
                 .unwrap()
@@ -183,6 +183,48 @@ impl Device {
                 })
                 .filter_map(|entry| Device::dev_open(entry.path()).ok())
                 .collect::<Vec<Device>>();
+
+            if !use_dev.is_empty() {
+                let mut num: usize = 0;
+                let mut found: bool = false;
+                for device in devices.iter().enumerate() {
+                    match device.1.name.trim_matches(char::from(0)).eq(&use_dev) {
+                        true => {
+                            num = device.0;
+                            found = true;
+                            println!("Using {}.", device.1.name);
+                            break;
+                        },
+                        false => {
+                            continue;
+                        }
+                    }
+                }
+                if !found {
+                    for device in devices.iter().enumerate() {
+                        match device.1.name.trim_matches(char::from(0)).contains(&use_dev) {
+                            true => {
+                                num = device.0;
+                                found = true;
+                                println!("Using {}.", device.1.name);
+                                break;
+                            },
+                            false => {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                if !found {
+                    println!("Unable to find device: {}", use_dev);
+                    println!("Terminating");
+                    std::process::exit(1);
+                }
+
+                let device = Device::dev_open(devices[num].path.clone()).unwrap();
+                return device;
+            }
 
             println!("Select input device: ");
             for device in devices.iter().enumerate() {
