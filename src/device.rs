@@ -6,12 +6,12 @@ use std::{
     time::SystemTime,
 };
 
-use base64::prelude::*;
+use clap::Parser;
 use input_linux::{
+    sys::{input_event, BUS_USB},
     EvdevHandle, EventKind, EventTime, InputEvent, InputId, Key, KeyEvent, KeyState,
     SynchronizeEvent, UInputHandle,
 };
-use input_linux_sys::{input_event, BUS_USB};
 
 const VENDOR: u16 = 0x3232;
 const VERSION: u16 = 0x1234;
@@ -22,14 +22,36 @@ pub enum UInputOrDev {
     DevInput(EvdevHandle<File>),
 }
 
+pub enum DeviceType {
+    Mouse,
+    Keyboard,
+}
+
+impl DeviceType {
+    pub fn is_mouse(&self) -> bool {
+        matches!(self, DeviceType::Mouse)
+    }
+
+    pub fn is_keyboard(&self) -> bool {
+        matches!(self, DeviceType::Keyboard)
+    }
+}
+
 pub struct Device {
     pub name: String,
     pub path: PathBuf,
     handler: UInputOrDev,
+    pub ty: DeviceType,
 }
 
 impl Device {
-    pub fn dev_open(path: PathBuf) -> Result<Self, String> {
+    pub fn dev_open(mut path: PathBuf, ty: DeviceType) -> Result<Self, String> {
+        if path.is_symlink() {
+            // This means that the path is /dev/input/by-path/{ } or /dev/input/by-id/{ }
+            path = PathBuf::from("/dev/input")
+                .join(std::fs::read_link(&path).unwrap().file_name().unwrap());
+        }
+
         let file = match File::open(&path) {
             Ok(file) => file,
             Err(err) => {
@@ -45,12 +67,16 @@ impl Device {
         }
 
         let name_bytes = handler.device_name().unwrap();
-        let name = std::str::from_utf8(&name_bytes).unwrap();
+        let name = std::ffi::CStr::from_bytes_until_nul(&name_bytes)
+            .expect("Invalid Device Name")
+            .to_str()
+            .expect("Invalid String");
 
         Ok(Self {
             path,
             handler: UInputOrDev::DevInput(handler),
             name: name.to_string(),
+            ty,
         })
     }
 
@@ -70,17 +96,18 @@ impl Device {
             path,
             handler: UInputOrDev::Uinput(handler),
             name: name.to_string(),
+            ty: DeviceType::Mouse,
         })
     }
 
     pub fn add_mouse_attributes(&self) {
         match &self.handler {
-            UInputOrDev::Uinput(mouse) => {
-                mouse.set_evbit(EventKind::Key).unwrap();
-                mouse.set_evbit(EventKind::Synchronize).unwrap();
+            UInputOrDev::Uinput(device) => {
+                device.set_evbit(EventKind::Key).unwrap();
+                device.set_evbit(EventKind::Synchronize).unwrap();
 
-                mouse.set_keybit(Key::ButtonLeft).unwrap();
-                mouse.set_keybit(Key::ButtonRight).unwrap();
+                device.set_keybit(Key::ButtonLeft).unwrap();
+                device.set_keybit(Key::ButtonRight).unwrap();
             }
             UInputOrDev::DevInput(_) => {
                 todo!()
@@ -169,67 +196,61 @@ impl Device {
         }
     }
 
-    pub fn select_device(use_dev: String) -> Device {
-        loop {
-            let devices = fs::read_dir("/dev/input")
-                .unwrap()
-                .filter_map(|res| res.ok())
-                .filter(|entry| {
-                    entry
-                        .file_name()
-                        .into_string()
-                        .map(|s| s.contains("event"))
-                        .unwrap_or(false)
+    pub fn devices() -> Vec<Device> {
+        fs::read_dir("/dev/input/by-id")
+            .unwrap()
+            .filter_map(|res| res.ok())
+            .filter_map(|entry| {
+                Device::dev_open(entry.path(), {
+                    let file_name = entry.file_name().into_string().unwrap();
+                    if file_name.ends_with("event-mouse") {
+                        DeviceType::Mouse
+                    } else if file_name.ends_with("event-kbd") {
+                        DeviceType::Keyboard
+                    } else {
+                        return None;
+                    }
                 })
-                .filter_map(|entry| Device::dev_open(entry.path()).ok())
-                .collect::<Vec<Device>>();
+                .ok()
+            })
+            .collect::<Vec<Device>>()
+    }
 
-            if !use_dev.is_empty() {
-                let mut num: usize = 0;
-                let mut found: bool = false;
-                for device in devices.iter().enumerate() {
-                    match device.1.name.trim_matches(char::from(0)).eq(&use_dev) {
-                        true => {
-                            num = device.0;
-                            found = true;
-                            println!("Using {}.", device.1.name);
-                            break;
-                        },
-                        false => {
-                            continue;
-                        }
-                    }
-                }
-                if !found {
-                    for device in devices.iter().enumerate() {
-                        match device.1.name.trim_matches(char::from(0)).contains(&use_dev) {
-                            true => {
-                                num = device.0;
-                                found = true;
-                                println!("Using {}.", device.1.name);
-                                break;
-                            },
-                            false => {
-                                continue;
-                            }
-                        }
-                    }
-                }
+    pub fn find_device(device_name: &str) -> Option<Device> {
+        let devices = Self::devices();
 
-                if !found {
-                    println!("Unable to find device: {}", use_dev);
-                    println!("Terminating");
-                    std::process::exit(1);
-                }
-
-                let device = Device::dev_open(devices[num].path.clone()).unwrap();
-                return device;
+        for device in devices {
+            if device.name.trim() == device_name {
+                return Some(device);
             }
+        }
+
+        let devices = Self::devices();
+        devices
+            .into_iter()
+            .find(|device| device.name.trim().contains(device_name))
+    }
+
+    pub fn select_device() -> Device {
+        loop {
+            let mut devices = Self::devices();
 
             println!("Select input device: ");
-            for device in devices.iter().enumerate() {
-                println!("{}: Device: {}", device.0, device.1.name);
+
+            println!(" Mouses: ");
+            for device in devices.iter().enumerate().filter(|(_, d)| d.ty.is_mouse()) {
+                println!("  {}: Device: {}", device.0, device.1.name);
             }
+
+            println!(" Keyboards: ");
+            for device in devices
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.ty.is_keyboard())
+            {
+                println!("  {}: Device: {}", device.0, device.1.name);
+            }
+
             let mut user_input = String::new();
             print!("-> ");
             std::io::stdout().flush().unwrap();
@@ -253,15 +274,21 @@ impl Device {
             user_input = String::new();
             std::io::stdin().read_line(&mut user_input).unwrap();
             if user_input.trim() == "Y" || user_input.trim() == "y" {
-                let device = Device::dev_open(devices[num].path.clone()).unwrap();
+                let device = devices.remove(num);
+
                 let mut cache_file = fs::OpenOptions::new()
                     .write(true)
                     .create(true)
                     .open("/tmp/TheClicker")
                     .unwrap();
-                let buffer = BASE64_STANDARD.encode(devices[num].path.to_str().unwrap());
-                let buffer = buffer.as_bytes();
-                cache_file.write_all(buffer).unwrap();
+                let mut args = crate::args::Args::parse();
+                args.use_device = Some(device.name.clone());
+                args.clear_cache = false;
+
+                cache_file
+                    .write_all(ron::to_string(&args).unwrap().as_bytes())
+                    .unwrap();
+
                 return device;
             }
         }
@@ -286,5 +313,5 @@ pub fn get_current_time() -> EventTime {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
 
-    EventTime::new(time.as_secs() as i64, time.as_micros() as i64)
+    EventTime::new(time.as_secs() as i64, time.subsec_micros() as i64)
 }

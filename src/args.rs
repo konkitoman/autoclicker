@@ -1,6 +1,6 @@
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, serde::Serialize, serde::Deserialize)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Cleaning the cache
@@ -16,12 +16,12 @@ pub struct Args {
     pub cooldown_press_release: u64,
 
     /// Bind left autoclicker to keycode
-    #[arg(short, long, default_value_t = 275)]
-    pub left_bind: u16,
+    #[arg(short, long)]
+    pub left_bind: Option<u16>,
 
     /// Bind right autoclicker to keycode
-    #[arg(short, long, default_value_t = 276)]
-    pub right_bind: u16,
+    #[arg(short, long)]
+    pub right_bind: Option<u16>,
 
     /// For finding what key is pressed
     #[arg(short, long, default_value_t = false)]
@@ -38,8 +38,12 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub no_grab: bool,
 
+    /// This will let the keyboard to be grabed!
+    #[arg(long, default_value_t = false)]
+    pub grab_kbd: bool,
+
     /// Automatically uses the specified device by name
     /// (first looks for exact match, then takes the first device that contains the string)
-    #[arg(short = 'd', long, default_value_t = String::new())]
-    pub use_dev: String,
+    #[arg(short = 'd', long)]
+    pub use_device: Option<String>,
 }

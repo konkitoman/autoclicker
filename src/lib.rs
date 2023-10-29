@@ -2,8 +2,7 @@ pub mod args;
 mod device;
 
 use std::{
-    fs::File,
-    io::{stdout, IsTerminal, Read},
+    io::{stdout, IsTerminal},
     path::PathBuf,
     sync::{mpsc, Arc},
     thread,
@@ -11,9 +10,7 @@ use std::{
 };
 
 use crate::device::Device;
-use base64::prelude::*;
-use input_linux::{Key, KeyState};
-use input_linux_sys::input_event;
+use input_linux::{sys::input_event, Key, KeyState};
 
 #[derive(Default)]
 pub struct ToggleStates {
@@ -27,18 +24,19 @@ pub struct ToggleStates {
 pub struct StateArgs {
     pub cooldown: u64,
     pub cooldown_press_release: u64,
-    pub left_bind: u16,
-    pub right_bind: u16,
+    pub left_bind: Option<u16>,
+    pub right_bind: Option<u16>,
     pub find_keycodes: bool,
     pub beep: bool,
     pub debug: bool,
     pub grab: bool,
-    pub use_dev: String,
+    pub grab_kbd: bool,
+    pub use_device: Option<String>,
 }
 
 pub struct State {
-    mouse_input: Device,
-    mouse_output: Arc<Device>,
+    input: Device,
+    output: Arc<Device>,
 
     left_auto_clicker_bind: u16,
     right_auto_clicker_bind: u16,
@@ -52,23 +50,6 @@ pub struct State {
 }
 
 impl State {
-    fn try_from_cache(use_dev: String) -> Device {
-        match File::open("/tmp/TheClicker") {
-            Ok(mut file) => {
-                println!("Device loaded from cache!");
-                let mut buffer = vec![];
-                let length = file.read_to_end(&mut buffer).unwrap();
-                let buffer = BASE64_STANDARD.decode(&buffer[..length]).unwrap();
-                let content = String::from_utf8(buffer).unwrap();
-                let device = Device::dev_open(PathBuf::from(content)).unwrap();
-                println!("Device name: {}", device.name);
-                println!("For cleaning cache, you can add --clear-cache");
-                device
-            }
-            Err(_) => Device::select_device(use_dev),
-        }
-    }
-
     pub fn new(
         StateArgs {
             cooldown,
@@ -79,25 +60,53 @@ impl State {
             beep,
             debug,
             grab,
-            use_dev,
+            use_device,
+            grab_kbd,
         }: StateArgs,
     ) -> Self {
-        let mouse_input = Self::try_from_cache(use_dev);
-        let mouse_output = Device::uinput_open(PathBuf::from("/dev/uinput"), "ManClicker").unwrap();
-        mouse_output.add_mouse_attributes();
+        let input;
 
-        if grab {
-            mouse_output.copy_attributes(&mouse_input);
-            mouse_input
-                .grab(true)
-                .expect("Cannot grab the input device!");
+        if let Some(device_name) = use_device {
+            if let Some(device) = Device::find_device(&device_name) {
+                input = device;
+            } else {
+                eprintln!("Cannot find device: {device_name}");
+                std::process::exit(1);
+            }
+        } else {
+            input = Device::select_device();
         }
 
-        mouse_output.create();
+        println!("Using: {}", input.name);
+
+        let output = Device::uinput_open(PathBuf::from("/dev/uinput"), "TheClicker").unwrap();
+        output.add_mouse_attributes();
+
+        if grab {
+            if input.ty.is_keyboard() && !grab_kbd {
+                eprintln!("Grab mode is disabled for keyboard!");
+                eprintln!("You can use --grab-kbd to override that");
+            } else {
+                output.copy_attributes(&input);
+                input.grab(true).expect("Cannot grab the input device!");
+            }
+        }
+
+        output.create();
+
+        let left_bind = left_bind.unwrap_or(match input.ty {
+            device::DeviceType::Mouse => 275,
+            device::DeviceType::Keyboard => 26,
+        });
+
+        let right_bind = right_bind.unwrap_or(match input.ty {
+            device::DeviceType::Mouse => 276,
+            device::DeviceType::Keyboard => 27,
+        });
 
         Self {
-            mouse_input,
-            mouse_output: Arc::new(mouse_output),
+            input,
+            output: Arc::new(output),
 
             left_auto_clicker_bind: left_bind,
             right_auto_clicker_bind: right_bind,
@@ -113,8 +122,8 @@ impl State {
         let (transmitter, receiver) = mpsc::channel();
 
         let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
-        let input = self.mouse_input;
-        let output = self.mouse_output.clone();
+        let input = self.input;
+        let output = self.output.clone();
 
         let debug = self.debug;
         let find_keycodes = self.find_keycodes;
@@ -183,7 +192,7 @@ impl State {
         println!();
         print_active(&toggle);
 
-        let output = self.mouse_output;
+        let output = self.output;
         loop {
             if let Some(recv) = if toggle.left | toggle.right {
                 receiver.try_recv().ok()

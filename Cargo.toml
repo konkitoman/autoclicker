@@ -1,6 +1,6 @@
 [package]
 name = "theclicker"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 license = "MIT"
 authors = ["konkitoman"]
@@ -11,6 +11,6 @@ keywords = ["autoclicker", "theclicker"]
 
 [dependencies]
 input-linux = "0.6.0"
-input-linux-sys = "0.8.0"
-base64 = "0.21.4"
 clap = { version = "4.4.3", features = ["derive"] }
+ron = "0.8.1"
+serde = { version = "1.0.190", features = ["derive"] }

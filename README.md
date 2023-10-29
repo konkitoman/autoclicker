@@ -16,13 +16,14 @@ Is using uinput and evdev!
 Run `theclicker`
 
 Select your mouse or keyboard.
-Default binds are for mouse!
-On mouse back or forword to activate left or right clicker!
 
-You can use --find-keycodes to find what keycode you are pressing!
-You can use --left-bind or --right-bind to set on what keycode the clicker will activate!
+On mouse `back` or `forword` to activate left or right clicker!
+On keyboard `[` or `]` to activate left or right clicker!
 
-You can use --help to see more!
+You can use `-f` to find what keycode you are pressing!
+You can use `-l` or `-r` to set on what keycode the clicker will activate!
+
+You can use `--help` to see more!
 
 ## Build
 
