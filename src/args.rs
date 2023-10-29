@@ -37,4 +37,9 @@ pub struct Args {
     /// Grabs the input device and emulates any unused action from it
     #[arg(long, default_value_t = false)]
     pub no_grab: bool,
+
+    /// Automatically uses the specified device by name
+    /// (first looks for exact match, then takes the first device that contains the string)
+    #[arg(short = 'd', long, default_value_t = String::new())]
+    pub use_dev: String,
 }

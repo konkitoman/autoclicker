@@ -33,6 +33,7 @@ pub struct StateArgs {
     pub beep: bool,
     pub debug: bool,
     pub grab: bool,
+    pub use_dev: String,
 }
 
 pub struct State {
@@ -51,7 +52,7 @@ pub struct State {
 }
 
 impl State {
-    fn try_from_cache() -> Device {
+    fn try_from_cache(use_dev: String) -> Device {
         match File::open("/tmp/TheClicker") {
             Ok(mut file) => {
                 println!("Device loaded from cache!");
@@ -64,7 +65,7 @@ impl State {
                 println!("For cleaning cache, you can add --clear-cache");
                 device
             }
-            Err(_) => Device::select_device(),
+            Err(_) => Device::select_device(use_dev),
         }
     }
 
@@ -78,9 +79,10 @@ impl State {
             beep,
             debug,
             grab,
+            use_dev,
         }: StateArgs,
     ) -> Self {
-        let mouse_input = Self::try_from_cache();
+        let mouse_input = Self::try_from_cache(use_dev);
         let mouse_output = Device::uinput_open(PathBuf::from("/dev/uinput"), "ManClicker").unwrap();
         mouse_output.add_mouse_attributes();
 

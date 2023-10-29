@@ -19,6 +19,7 @@ fn main() {
         no_beep,
         debug,
         no_grab,
+        use_dev,
     } = Args::parse();
 
     if clear_cache {
@@ -37,6 +38,7 @@ fn main() {
         beep,
         debug,
         grab,
+        use_dev,
     });
 
     println!();
