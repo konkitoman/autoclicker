@@ -34,11 +34,11 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub debug: bool,
 
-    /// Grabs the input device and emulates any unused action from it
+    /// I will not: grab the input device and emulates any unused action from it
     #[arg(long, default_value_t = false)]
     pub no_grab: bool,
 
-    /// This will let the keyboard to be grabed!
+    /// This will let the keyboard to be grabbed!
     #[arg(long, default_value_t = false)]
     pub grab_kbd: bool,
 
@@ -46,4 +46,16 @@ pub struct Args {
     /// (first looks for exact match, then takes the first device that contains the string)
     #[arg(short = 'd', long)]
     pub use_device: Option<String>,
+
+    /// This will try to open the specified dev path, you need to specify what type of device is!
+    #[arg(short = 'D')]
+    pub use_dev_path: Option<String>,
+
+    /// Set the device type as Keyboard
+    #[arg(short = 'K', default_value_t = false)]
+    pub is_keyboard: bool,
+
+    /// Set the device type as Mouse
+    #[arg(short = 'M', default_value_t = false)]
+    pub is_mouse: bool,
 }

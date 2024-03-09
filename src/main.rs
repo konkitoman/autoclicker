@@ -1,15 +1,10 @@
-pub mod args;
-pub mod device;
-
 use std::{
     fs::{self, File},
     io::Read,
 };
 
 use clap::Parser;
-use theclicker::State;
-
-use crate::args::Args;
+use theclicker::{Args, DeviceType, State};
 
 fn main() {
     let Args {
@@ -24,6 +19,9 @@ fn main() {
         mut no_grab,
         mut use_device,
         mut grab_kbd,
+        mut use_dev_path,
+        mut is_keyboard,
+        mut is_mouse,
     } = Args::parse();
 
     if clear_cache {
@@ -48,6 +46,9 @@ fn main() {
             no_grab,
             grab_kbd,
             use_device,
+            use_dev_path,
+            is_keyboard,
+            is_mouse,
         } = ron::from_str::<Args>(&string).unwrap();
     }
 
@@ -65,6 +66,16 @@ fn main() {
         grab,
         use_device,
         grab_kbd,
+        use_dev_path,
+        device_type: match (is_mouse, is_keyboard) {
+            (true, false) => Some(DeviceType::Mouse),
+            (false, true) => Some(DeviceType::Keyboard),
+            (false, false) => None,
+            _ => {
+                eprintln!("You cannot set both -K and -M");
+                std::process::exit(4)
+            }
+        },
     });
 
     println!();

@@ -281,7 +281,7 @@ impl Device {
                     .create(true)
                     .open("/tmp/TheClicker")
                     .unwrap();
-                let mut args = crate::args::Args::parse();
+                let mut args = crate::Args::parse();
                 args.use_device = Some(device.name.clone());
                 args.clear_cache = false;
 

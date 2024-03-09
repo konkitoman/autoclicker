@@ -1,15 +1,18 @@
-pub mod args;
+mod args;
 mod device;
+
+pub use args::Args;
 
 use std::{
     io::{stdout, IsTerminal},
     path::PathBuf,
+    str::FromStr,
     sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
 
-use crate::device::Device;
+pub use device::{Device, DeviceType};
 use input_linux::{sys::input_event, Key, KeyState};
 
 #[derive(Default)]
@@ -32,6 +35,8 @@ pub struct StateArgs {
     pub grab: bool,
     pub grab_kbd: bool,
     pub use_device: Option<String>,
+    pub use_dev_path: Option<String>,
+    pub device_type: Option<DeviceType>,
 }
 
 pub struct State {
@@ -62,18 +67,43 @@ impl State {
             grab,
             use_device,
             grab_kbd,
+            use_dev_path,
+            device_type,
         }: StateArgs,
     ) -> Self {
         let input;
 
-        if let Some(device_name) = use_device {
-            if let Some(device) = Device::find_device(&device_name) {
-                input = device;
-            } else {
+        'try_set_input: {
+            if let Some(dev_path) = use_dev_path {
+                let Ok(path) = PathBuf::from_str(&dev_path) else {
+                    eprintln!("Cannot make {dev_path} to path, invalid path");
+                    std::process::exit(3);
+                };
+
+                let Some(device_type) = device_type else {
+                    eprintln!("You didn't specified the device type!");
+                    std::process::exit(5);
+                };
+
+                if let Ok(device) = Device::dev_open(path, device_type) {
+                    input = device;
+                    break 'try_set_input;
+                }
+
+                eprintln!("Cannot open device: {dev_path}");
+                std::process::exit(2);
+            }
+
+            if let Some(device_name) = use_device {
+                if let Some(device) = Device::find_device(&device_name) {
+                    input = device;
+                    break 'try_set_input;
+                }
+
                 eprintln!("Cannot find device: {device_name}");
                 std::process::exit(1);
             }
-        } else {
+
             input = Device::select_device();
         }
 
