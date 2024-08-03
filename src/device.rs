@@ -273,7 +273,7 @@ impl Device {
             std::io::stdout().flush().unwrap();
             user_input = String::new();
             std::io::stdin().read_line(&mut user_input).unwrap();
-            if user_input.trim() == "Y" || user_input.trim() == "y" {
+            if user_input.trim().to_lowercase() == "y" || user_input.trim().is_empty() {
                 let device = devices.remove(num);
 
                 let mut cache_file = fs::OpenOptions::new()
