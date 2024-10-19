@@ -34,6 +34,10 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub debug: bool,
 
+    /// Hold mode, when a keybind is pressed the autoclicker will be active until the keybind release
+    #[arg(short = 'H', default_value_t = false)]
+    pub hold: bool,
+
     /// I will not: grab the input device and emulates any unused action from it
     #[arg(long, default_value_t = false)]
     pub no_grab: bool,

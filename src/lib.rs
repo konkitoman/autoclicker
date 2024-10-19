@@ -15,7 +15,7 @@ use std::{
 pub use device::{Device, DeviceType};
 use input_linux::{sys::input_event, Key, KeyState};
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct ToggleStates {
     ///Primary click
     left: bool,
@@ -32,6 +32,7 @@ pub struct StateArgs {
     pub find_keycodes: bool,
     pub beep: bool,
     pub debug: bool,
+    pub hold: bool,
     pub grab: bool,
     pub grab_kbd: bool,
     pub use_device: Option<String>,
@@ -49,6 +50,7 @@ pub struct State {
     cooldown: Duration,
     cooldown_pr: Duration,
     debug: bool,
+    hold: bool,
     find_keycodes: bool,
 
     beep: bool,
@@ -69,6 +71,7 @@ impl State {
             grab_kbd,
             use_dev_path,
             device_type,
+            hold,
         }: StateArgs,
     ) -> Self {
         let input;
@@ -143,13 +146,14 @@ impl State {
 
             cooldown: Duration::from_millis(cooldown),
             debug,
+            hold,
             find_keycodes,
             beep,
             cooldown_pr: Duration::from_millis(cooldown_press_release),
         }
     }
     pub fn main_loop(self) {
-        let (transmitter, receiver) = mpsc::channel();
+        let (transmitter, receiver) = mpsc::channel::<ToggleStates>();
 
         let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
         let input = self.input;
@@ -173,7 +177,8 @@ impl State {
             println!("Right bind code: {right_bind}");
         }
 
-        let mut states = ToggleStates::default();
+        let mut state = ToggleStates::default();
+        let hold = self.hold;
 
         thread::spawn(move || loop {
             input.read(&mut events).unwrap();
@@ -183,30 +188,37 @@ impl State {
                     println!("Event: {:?}", event);
                 }
 
-                if find_keycodes && event.value == 1 {
-                    if let Ok(key) = Key::from_code(event.code) {
-                        println!("Keycode: {}, key: {key:?}", event.code);
-                    } else {
-                        println!("Keycode: {}", event.code);
-                    }
-                }
-
                 let mut used = false;
-                let pressed = event.value == 1;
-                if event.code == left_bind {
-                    if pressed && !states.left && !find_keycodes {
-                        transmitter.send(1).unwrap();
+                'handle_events: {
+                    if find_keycodes && event.value == 1 {
+                        if let Ok(key) = Key::from_code(event.code) {
+                            println!("Keycode: {}, key: {key:?}", event.code);
+                        } else {
+                            println!("Keycode: {}", event.code);
+                        }
+                        break 'handle_events;
                     }
-                    states.left = pressed;
-                    used = true;
-                }
 
-                if event.code == right_bind {
-                    if pressed && !states.right && !find_keycodes {
-                        transmitter.send(2).unwrap();
+                    let old_state = state;
+
+                    let pressed = event.value == 1;
+                    for (bind, s) in [(left_bind, &mut state.left), (right_bind, &mut state.right)]
+                    {
+                        if event.code == bind {
+                            if hold {
+                                if pressed != *s {
+                                    *s = pressed;
+                                }
+                            } else if pressed {
+                                *s = !*s;
+                            }
+                            used = true;
+                        }
                     }
-                    states.right = pressed;
-                    used = true;
+
+                    if old_state != state {
+                        transmitter.send(state).unwrap();
+                    }
                 }
 
                 if !used {
@@ -229,12 +241,7 @@ impl State {
             } else {
                 receiver.recv().ok()
             } {
-                if recv == 1 {
-                    toggle.left = !toggle.left;
-                }
-                if recv == 2 {
-                    toggle.right = !toggle.right;
-                }
+                toggle = recv;
 
                 if beep {
                     // ansi beep sound

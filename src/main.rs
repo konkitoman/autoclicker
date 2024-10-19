@@ -22,6 +22,7 @@ fn main() {
         mut use_dev_path,
         mut is_keyboard,
         mut is_mouse,
+        mut hold,
     } = Args::parse();
 
     if clear_cache {
@@ -49,6 +50,7 @@ fn main() {
             use_dev_path,
             is_keyboard,
             is_mouse,
+            hold,
         } = ron::from_str::<Args>(&string).unwrap();
     }
 
@@ -63,6 +65,7 @@ fn main() {
         find_keycodes,
         beep,
         debug,
+        hold,
         grab,
         use_device,
         grab_kbd,
