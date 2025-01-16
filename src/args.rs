@@ -1,12 +1,8 @@
 use clap::Parser;
 
-#[derive(Parser, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Cleaning the cache
-    #[arg(long, default_value_t = false)]
-    pub clear_cache: bool,
-
     /// Set the cooldown in milliseconds
     #[arg(short, long, default_value_t = 25)]
     pub cooldown: u64,
