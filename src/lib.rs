@@ -199,7 +199,7 @@ impl State {
 
                     let old_state = state;
 
-                    let pressed = event.value == 1 || event.value == 2;
+                    let pressed = matches!(event.value, 1 | 2);
                     for (bind, s) in [(left_bind, &mut state.left), (right_bind, &mut state.right)]
                     {
                         if event.code == bind {
