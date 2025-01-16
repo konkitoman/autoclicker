@@ -282,18 +282,8 @@ impl Device {
             if user_input.trim().to_lowercase() == "y" || user_input.trim().is_empty() {
                 let device = devices.remove(num);
 
-                let mut cache_file = fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open("/tmp/TheClicker")
-                    .unwrap();
                 let mut args = crate::Args::parse();
                 args.use_device = Some(device.name.clone());
-                args.clear_cache = false;
-
-                cache_file
-                    .write_all(ron::to_string(&args).unwrap().as_bytes())
-                    .unwrap();
 
                 return device;
             }

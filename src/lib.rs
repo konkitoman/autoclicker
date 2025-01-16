@@ -24,22 +24,6 @@ pub struct ToggleStates {
     right: bool,
 }
 
-pub struct StateArgs {
-    pub cooldown: u64,
-    pub cooldown_press_release: u64,
-    pub left_bind: Option<u16>,
-    pub right_bind: Option<u16>,
-    pub find_keycodes: bool,
-    pub beep: bool,
-    pub debug: bool,
-    pub hold: bool,
-    pub grab: bool,
-    pub grab_kbd: bool,
-    pub use_device: Option<String>,
-    pub use_dev_path: Option<String>,
-    pub device_type: Option<DeviceType>,
-}
-
 pub struct State {
     input: Device,
     output: Arc<Device>,
@@ -58,22 +42,36 @@ pub struct State {
 
 impl State {
     pub fn new(
-        StateArgs {
+        Args {
             cooldown,
             cooldown_press_release,
             left_bind,
             right_bind,
             find_keycodes,
-            beep,
+            no_beep,
             debug,
-            grab,
+            no_grab,
             use_device,
             grab_kbd,
             use_dev_path,
-            device_type,
             hold,
-        }: StateArgs,
+            is_mouse,
+            is_keyboard,
+        }: Args,
     ) -> Self {
+        let device_type = match (is_mouse, is_keyboard) {
+            (true, false) => Some(DeviceType::Mouse),
+            (false, true) => Some(DeviceType::Keyboard),
+            (false, false) => None,
+            _ => {
+                eprintln!("You cannot set both -K and -M");
+                std::process::exit(4)
+            }
+        };
+
+        let grab = !no_grab;
+        let beep = !no_beep;
+
         let input;
 
         'try_set_input: {
