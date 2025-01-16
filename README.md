@@ -1,6 +1,8 @@
 # Simple cli autoclicker for linux
 [![Crates.io](https://img.shields.io/crates/v/theclicker.svg)](https://crates.io/crates/theclicker)
 
+This fork fixes the hold flag not functioning properley on the upstream branch as of 250116
+
 Working on xorg and wayland.
 
 Is using uinput and evdev!
