@@ -67,15 +67,21 @@ impl Device {
         }
 
         let name_bytes = handler.device_name().unwrap();
+        let unique_id = String::from_utf8_lossy(&handler.unique_id().unwrap_or_else(|err| {
+            eprintln!("Cannot get device unique id: {err}");
+            vec![]
+        }))
+        .into_owned();
         let name = std::ffi::CStr::from_bytes_until_nul(&name_bytes)
             .expect("Invalid Device Name")
             .to_str()
             .expect("Invalid String");
+        let name = format!("{name}_{}", unique_id);
 
         Ok(Self {
             path,
             handler: UInputOrDev::DevInput(handler),
-            name: name.to_string(),
+            name,
             ty,
         })
     }
