@@ -1,12 +1,12 @@
 use std::{
     fs::{self, File},
     io::{self, Write},
+    os::fd::AsRawFd,
     path::PathBuf,
     process::exit,
     time::SystemTime,
 };
 
-use clap::Parser;
 use input_linux::{
     sys::{input_event, BUS_USB},
     EvdevHandle, EventKind, EventTime, InputEvent, InputId, Key, KeyEvent, KeyState,
@@ -40,12 +40,12 @@ impl DeviceType {
 pub struct Device {
     pub name: String,
     pub path: PathBuf,
+    pub filename: String,
     handler: UInputOrDev,
-    pub ty: DeviceType,
 }
 
 impl Device {
-    pub fn dev_open(mut path: PathBuf, ty: DeviceType) -> Result<Self, String> {
+    pub fn dev_open(mut path: PathBuf) -> Result<Self, String> {
         if path.is_symlink() {
             // This means that the path is /dev/input/by-path/{ } or /dev/input/by-id/{ }
             path = PathBuf::from("/dev/input")
@@ -60,29 +60,19 @@ impl Device {
                 exit(1);
             }
         };
+
         let handler = EvdevHandle::new(file);
 
-        if !handler.event_bits().unwrap().get(EventKind::Key) {
-            return Err(String::from("Unavailable device!"));
-        }
+        let name_bytes = handler.device_name().unwrap_or(vec![]);
+        let name = String::from_utf8_lossy(&name_bytes);
 
-        let name_bytes = handler.device_name().unwrap();
-        let unique_id = String::from_utf8_lossy(&handler.unique_id().unwrap_or_else(|err| {
-            eprintln!("Cannot get device unique id: {err}");
-            vec![]
-        }))
-        .into_owned();
-        let name = std::ffi::CStr::from_bytes_until_nul(&name_bytes)
-            .expect("Invalid Device Name")
-            .to_str()
-            .expect("Invalid String");
-        let name = format!("{name}_{}", unique_id);
+        let name = format!("{name}-{}", path.file_name().unwrap().to_str().unwrap());
 
         Ok(Self {
+            filename: path.file_name().unwrap().to_str().unwrap().to_owned(),
             path,
             handler: UInputOrDev::DevInput(handler),
             name,
-            ty,
         })
     }
 
@@ -102,7 +92,7 @@ impl Device {
             path,
             handler: UInputOrDev::Uinput(handler),
             name: name.to_string(),
-            ty: DeviceType::Mouse,
+            filename: name.to_string(),
         })
     }
 
@@ -122,34 +112,50 @@ impl Device {
     }
 
     /// Only copis attributes from DevInput to UInput
-    pub fn copy_attributes(&self, from: &Device) {
+    pub fn copy_attributes(&self, debug: bool, from: &Device) {
         match (&self.handler, &from.handler) {
             (UInputOrDev::Uinput(to), UInputOrDev::DevInput(from)) => {
                 if let Ok(bits) = from.event_bits() {
+                    if debug {
+                        println!("Copy event_bits: {bits:?}")
+                    }
                     for bit in bits.iter() {
                         to.set_evbit(bit).unwrap();
                     }
                 }
 
                 if let Ok(bits) = from.relative_bits() {
+                    if debug {
+                        println!("Copy releative_bits: {bits:?}")
+                    }
                     for bit in bits.iter() {
                         to.set_relbit(bit).unwrap();
                     }
                 }
 
-                if let Ok(bits) = from.absolute_bits() {
-                    for bit in bits.iter() {
-                        to.set_absbit(bit).unwrap();
-                    }
-                }
+                // FIX: - TheClicker: kernel bug: device has min == max on ABS_VOLUME
+                // if let Ok(bits) = from.absolute_bits() {
+                //     if debug {
+                //         println!("Copy absolute_bits: {bits:?}")
+                //     }
+                //     for bit in bits.iter() {
+                //         to.set_absbit(bit).unwrap();
+                //     }
+                // }
 
                 if let Ok(bits) = from.misc_bits() {
+                    if debug {
+                        println!("Copy misc_bits: {bits:?}")
+                    }
                     for bit in bits.iter() {
                         to.set_mscbit(bit).unwrap();
                     }
                 }
 
                 if let Ok(bits) = from.key_bits() {
+                    if debug {
+                        println!("Copy key_bits: {bits:?}")
+                    }
                     for bit in bits.iter() {
                         to.set_keybit(bit).unwrap();
                     }
@@ -173,7 +179,7 @@ impl Device {
                             version: VERSION,
                         },
                         self.name.as_bytes(),
-                        0,
+                        input_linux::sys::FF_MAX_EFFECTS as u32,
                         &[],
                     )
                     .unwrap();
@@ -181,6 +187,27 @@ impl Device {
             UInputOrDev::DevInput(_) => todo!(),
         }
     }
+
+    pub fn empty_read_buffer(&self) {
+        let fd = match &self.handler {
+            UInputOrDev::DevInput(dev_input) => dev_input.as_inner().as_raw_fd(),
+            _ => unreachable!(),
+        };
+        let mut pollfd = nix::libc::pollfd {
+            fd,
+            events: nix::libc::POLLIN,
+            revents: 0,
+        };
+        let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
+        loop {
+            _ = unsafe { nix::libc::poll(&mut pollfd, 1, 0) };
+            if pollfd.revents & nix::libc::POLLIN != nix::libc::POLLIN {
+                break;
+            }
+            _ = self.read(&mut events);
+        }
+    }
+
     pub fn read(&self, events: &mut [input_event]) -> io::Result<usize> {
         match &self.handler {
             UInputOrDev::Uinput(device) => device.read(events),
@@ -203,21 +230,16 @@ impl Device {
     }
 
     pub fn devices() -> Vec<Device> {
-        fs::read_dir("/dev/input/by-id")
+        fs::read_dir("/dev/input")
             .unwrap()
             .filter_map(|res| res.ok())
             .filter_map(|entry| {
-                Device::dev_open(entry.path(), {
-                    let file_name = entry.file_name().into_string().unwrap();
-                    if file_name.ends_with("event-mouse") {
-                        DeviceType::Mouse
-                    } else if file_name.ends_with("event-kbd") {
-                        DeviceType::Keyboard
-                    } else {
+                if let Ok(ty) = entry.file_type() {
+                    if ty.is_dir() {
                         return None;
                     }
-                })
-                .ok()
+                }
+                Device::dev_open(entry.path()).ok()
             })
             .collect::<Vec<Device>>()
     }
@@ -241,20 +263,21 @@ impl Device {
         loop {
             let mut devices = Self::devices();
 
+            devices.retain(|device| {
+                let UInputOrDev::DevInput(handler) = &device.handler else {
+                    unreachable!()
+                };
+
+                let Ok(event_bits) = handler.event_bits() else {
+                    return true;
+                };
+
+                event_bits.get(EventKind::Key)
+            });
+
             println!("Select input device: ");
-
-            println!(" Mouses: ");
-            for device in devices.iter().enumerate().filter(|(_, d)| d.ty.is_mouse()) {
-                println!("  {}: Device: {}", device.0, device.1.name);
-            }
-
-            println!(" Keyboards: ");
-            for device in devices
-                .iter()
-                .enumerate()
-                .filter(|(_, d)| d.ty.is_keyboard())
-            {
-                println!("  {}: Device: {}", device.0, device.1.name);
+            for device in devices.iter().enumerate() {
+                println!("\t{}: Device: {}", device.0, device.1.name);
             }
 
             let mut user_input = String::new();
@@ -281,9 +304,6 @@ impl Device {
             std::io::stdin().read_line(&mut user_input).unwrap();
             if user_input.trim().to_lowercase() == "y" || user_input.trim().is_empty() {
                 let device = devices.remove(num);
-
-                let mut args = crate::Args::parse();
-                args.use_device = Some(device.name.clone());
 
                 return device;
             }

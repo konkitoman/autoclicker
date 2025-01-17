@@ -15,13 +15,13 @@ Is using uinput and evdev!
 
 Run `theclicker`
 
-Select your mouse or keyboard.
+Select your input device.
 
-On mouse `back` or `forword` to activate left or right clicker!
-On keyboard `[` or `]` to activate left or right clicker!
+Then if is not legacy interface like: `/dev/input/mouse{N}` or `/dev/input/mice`
+You choose the binding for left and right by pressing then confirming.
+I recommend hold and grab mode.
 
-You can use `-f` to find what keycode you are pressing!
-You can use `-l` or `-r` to set on what keycode the clicker will activate!
+Grab mode is only tested on KDE Plasma wayland 6.2.5
 
 You can use `--help` to see more!
 

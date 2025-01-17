@@ -1,6 +1,6 @@
 [package]
 name = "theclicker"
-version = "0.1.8"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["konkitoman"]
@@ -10,5 +10,6 @@ keywords = ["autoclicker", "theclicker"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-input-linux = "0.6.0"
-clap = { version = "4.4.3", features = ["derive"] }
+input-linux = "0.7.1"
+clap = { version = "4.5.26", features = ["derive"] }
+nix = "0.29.0"

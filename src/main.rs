@@ -1,6 +1,6 @@
 use clap::Parser;
-use theclicker::{Args, State};
+use theclicker::{Args, TheClicker};
 
 fn main() {
-    State::new(Args::parse()).main_loop();
+    TheClicker::new(Args::parse()).main_loop();
 }
