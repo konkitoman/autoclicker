@@ -43,7 +43,20 @@ pub enum Command {
         #[arg(short = 'C', default_value_t = 0)]
         cooldown_press_release: u64,
     },
-    RunLegecy {},
+    RunLegacy {
+        /// Device name or path when the first character is `/`
+        /// (first looks for exact match, then takes the first device that contains the name)
+        #[arg(short = 'd')]
+        device_query: String,
+
+        /// Set the cooldown in milliseconds
+        #[arg(short, default_value_t = 25)]
+        cooldown: u64,
+
+        /// Set cooldown in milliseconds, between press and release
+        #[arg(short = 'C', default_value_t = 0)]
+        cooldown_press_release: u64,
+    },
 }
 
 #[derive(Parser, Debug)]

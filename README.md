@@ -17,7 +17,7 @@ Run `theclicker`
 
 Select your input device.
 
-Then if is not legacy interface like: `/dev/input/mouse{N}` or `/dev/input/mice`
+Then if is not a legacy interface like: `/dev/input/mouse{N}` or `/dev/input/mice`
 You choose the binding for left and right by pressing then confirming.
 I recommend hold and grab mode.
 

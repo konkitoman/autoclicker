@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Write},
+    io,
     os::fd::AsRawFd,
     path::PathBuf,
     process::exit,
@@ -13,14 +13,11 @@ use input_linux::{
     SynchronizeEvent, UInputHandle,
 };
 
+use crate::{choose_usize, choose_yes};
+
 const VENDOR: u16 = 0x3232;
 const VERSION: u16 = 0x1234;
 const PRODUCT: u16 = 0x5678;
-
-pub enum UInputOrDev {
-    Uinput(UInputHandle<File>),
-    DevInput(EvdevHandle<File>),
-}
 
 pub enum DeviceType {
     Mouse,
@@ -37,14 +34,14 @@ impl DeviceType {
     }
 }
 
-pub struct Device {
+pub struct InputDevice {
     pub name: String,
     pub path: PathBuf,
     pub filename: String,
-    handler: UInputOrDev,
+    pub handler: EvdevHandle<File>,
 }
 
-impl Device {
+impl InputDevice {
     pub fn dev_open(mut path: PathBuf) -> Result<Self, String> {
         if path.is_symlink() {
             // This means that the path is /dev/input/by-path/{ } or /dev/input/by-id/{ }
@@ -71,165 +68,12 @@ impl Device {
         Ok(Self {
             filename: path.file_name().unwrap().to_str().unwrap().to_owned(),
             path,
-            handler: UInputOrDev::DevInput(handler),
+            handler,
             name,
         })
     }
 
-    pub fn uinput_open(path: PathBuf, name: &str) -> Result<Self, String> {
-        let file = match fs::OpenOptions::new().write(true).open(&path) {
-            Ok(file) => file,
-            Err(err) => {
-                println!("Error: {}", err);
-                println!("Not having access to create device, try as root!");
-                exit(1);
-            }
-        };
-
-        let handler = UInputHandle::new(file);
-
-        Ok(Self {
-            path,
-            handler: UInputOrDev::Uinput(handler),
-            name: name.to_string(),
-            filename: name.to_string(),
-        })
-    }
-
-    pub fn add_mouse_attributes(&self) {
-        match &self.handler {
-            UInputOrDev::Uinput(device) => {
-                device.set_evbit(EventKind::Key).unwrap();
-                device.set_evbit(EventKind::Synchronize).unwrap();
-
-                device.set_keybit(Key::ButtonLeft).unwrap();
-                device.set_keybit(Key::ButtonRight).unwrap();
-            }
-            UInputOrDev::DevInput(_) => {
-                todo!()
-            }
-        }
-    }
-
-    /// Only copis attributes from DevInput to UInput
-    pub fn copy_attributes(&self, debug: bool, from: &Device) {
-        match (&self.handler, &from.handler) {
-            (UInputOrDev::Uinput(to), UInputOrDev::DevInput(from)) => {
-                if let Ok(bits) = from.event_bits() {
-                    if debug {
-                        println!("Copy event_bits: {bits:?}")
-                    }
-                    for bit in bits.iter() {
-                        to.set_evbit(bit).unwrap();
-                    }
-                }
-
-                if let Ok(bits) = from.relative_bits() {
-                    if debug {
-                        println!("Copy releative_bits: {bits:?}")
-                    }
-                    for bit in bits.iter() {
-                        to.set_relbit(bit).unwrap();
-                    }
-                }
-
-                // FIX: - TheClicker: kernel bug: device has min == max on ABS_VOLUME
-                // if let Ok(bits) = from.absolute_bits() {
-                //     if debug {
-                //         println!("Copy absolute_bits: {bits:?}")
-                //     }
-                //     for bit in bits.iter() {
-                //         to.set_absbit(bit).unwrap();
-                //     }
-                // }
-
-                if let Ok(bits) = from.misc_bits() {
-                    if debug {
-                        println!("Copy misc_bits: {bits:?}")
-                    }
-                    for bit in bits.iter() {
-                        to.set_mscbit(bit).unwrap();
-                    }
-                }
-
-                if let Ok(bits) = from.key_bits() {
-                    if debug {
-                        println!("Copy key_bits: {bits:?}")
-                    }
-                    for bit in bits.iter() {
-                        to.set_keybit(bit).unwrap();
-                    }
-                }
-            }
-            _ => {
-                todo!()
-            }
-        }
-    }
-
-    pub fn create(&self) {
-        match &self.handler {
-            UInputOrDev::Uinput(device) => {
-                device
-                    .create(
-                        &InputId {
-                            bustype: BUS_USB,
-                            vendor: VENDOR,
-                            product: PRODUCT,
-                            version: VERSION,
-                        },
-                        self.name.as_bytes(),
-                        input_linux::sys::FF_MAX_EFFECTS as u32,
-                        &[],
-                    )
-                    .unwrap();
-            }
-            UInputOrDev::DevInput(_) => todo!(),
-        }
-    }
-
-    pub fn empty_read_buffer(&self) {
-        let fd = match &self.handler {
-            UInputOrDev::DevInput(dev_input) => dev_input.as_inner().as_raw_fd(),
-            _ => unreachable!(),
-        };
-        let mut pollfd = nix::libc::pollfd {
-            fd,
-            events: nix::libc::POLLIN,
-            revents: 0,
-        };
-        let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
-        loop {
-            _ = unsafe { nix::libc::poll(&mut pollfd, 1, 0) };
-            if pollfd.revents & nix::libc::POLLIN != nix::libc::POLLIN {
-                break;
-            }
-            _ = self.read(&mut events);
-        }
-    }
-
-    pub fn read(&self, events: &mut [input_event]) -> io::Result<usize> {
-        match &self.handler {
-            UInputOrDev::Uinput(device) => device.read(events),
-            UInputOrDev::DevInput(device) => device.read(events),
-        }
-    }
-
-    pub fn write(&self, events: &[input_event]) -> io::Result<usize> {
-        match &self.handler {
-            UInputOrDev::Uinput(device) => device.write(events),
-            UInputOrDev::DevInput(_) => todo!(),
-        }
-    }
-
-    pub fn grab(&self, grab: bool) -> io::Result<()> {
-        match &self.handler {
-            UInputOrDev::Uinput(_) => todo!(),
-            UInputOrDev::DevInput(device) => device.grab(grab),
-        }
-    }
-
-    pub fn devices() -> Vec<Device> {
+    pub fn devices() -> Vec<InputDevice> {
         fs::read_dir("/dev/input")
             .unwrap()
             .filter_map(|res| res.ok())
@@ -239,12 +83,17 @@ impl Device {
                         return None;
                     }
                 }
-                Device::dev_open(entry.path()).ok()
+
+                if entry.path().file_name().unwrap().to_str().unwrap() == "mice" {
+                    return None;
+                }
+
+                InputDevice::dev_open(entry.path()).ok()
             })
-            .collect::<Vec<Device>>()
+            .collect::<Vec<InputDevice>>()
     }
 
-    pub fn find_device(device_name: &str) -> Option<Device> {
+    pub fn find_device(device_name: &str) -> Option<InputDevice> {
         let devices = Self::devices();
 
         for device in devices {
@@ -259,16 +108,12 @@ impl Device {
             .find(|device| device.name.trim().contains(device_name))
     }
 
-    pub fn select_device() -> Device {
+    pub fn select_device() -> InputDevice {
         loop {
             let mut devices = Self::devices();
 
             devices.retain(|device| {
-                let UInputOrDev::DevInput(handler) = &device.handler else {
-                    unreachable!()
-                };
-
-                let Ok(event_bits) = handler.event_bits() else {
+                let Ok(event_bits) = device.handler.event_bits() else {
                     return true;
                 };
 
@@ -280,34 +125,156 @@ impl Device {
                 println!("\t{}: Device: {}", device.0, device.1.name);
             }
 
-            let mut user_input = String::new();
-            print!("-> ");
-            std::io::stdout().flush().unwrap();
-            std::io::stdin().read_line(&mut user_input).unwrap();
-            let num: usize = match user_input.trim().parse() {
-                Ok(num) => num,
-                Err(_) => {
-                    println!("Is not an number!");
-                    continue;
-                }
-            };
+            let num = choose_usize("", None);
 
             if num >= devices.len() {
                 println!("Is to large!");
                 continue;
             }
 
-            println!("Device selected: {}, Is Ok [Y/n]", devices[num].name);
-            print!("-> ");
-            std::io::stdout().flush().unwrap();
-            user_input = String::new();
-            std::io::stdin().read_line(&mut user_input).unwrap();
-            if user_input.trim().to_lowercase() == "y" || user_input.trim().is_empty() {
+            if choose_yes(
+                format!("Device selected: {}, Is Ok", devices[num].name),
+                true,
+            ) {
                 let device = devices.remove(num);
 
                 return device;
             }
         }
+    }
+
+    pub fn read(&self, events: &mut [input_event]) -> io::Result<usize> {
+        self.handler.read(events)
+    }
+
+    pub fn grab(&self, grab: bool) -> io::Result<()> {
+        self.handler.grab(grab)
+    }
+
+    pub fn empty_read_buffer(&self) {
+        let fd = self.handler.as_inner().as_raw_fd();
+        let mut pollfd = nix::libc::pollfd {
+            fd,
+            events: nix::libc::POLLIN,
+            revents: 0,
+        };
+        let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
+        loop {
+            _ = unsafe { nix::libc::poll(&mut pollfd, 1, 0) };
+            if pollfd.revents & nix::libc::POLLIN != nix::libc::POLLIN {
+                break;
+            }
+            _ = self.read(&mut events);
+        }
+    }
+}
+
+pub struct OutputDevice {
+    pub name: String,
+    pub path: PathBuf,
+    pub filename: String,
+    pub handler: UInputHandle<File>,
+}
+
+impl OutputDevice {
+    pub fn uinput_open(path: PathBuf, name: &str) -> Result<Self, String> {
+        let file = match fs::OpenOptions::new().write(true).open(&path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Error: {}", err);
+                println!("Not having access to create device, try as root!");
+                exit(1);
+            }
+        };
+
+        let handler = UInputHandle::new(file);
+
+        Ok(Self {
+            path,
+            handler,
+            name: name.to_string(),
+            filename: name.to_string(),
+        })
+    }
+
+    pub fn add_mouse_attributes(&self) {
+        self.handler.set_evbit(EventKind::Key).unwrap();
+        self.handler.set_evbit(EventKind::Synchronize).unwrap();
+
+        self.handler.set_keybit(Key::ButtonLeft).unwrap();
+        self.handler.set_keybit(Key::ButtonRight).unwrap();
+    }
+
+    /// Only copis attributes from DevInput to UInput
+    pub fn copy_attributes(&self, debug: bool, from: &InputDevice) {
+        let to = &self.handler;
+        let from = &from.handler;
+
+        if let Ok(bits) = from.event_bits() {
+            if debug {
+                println!("Copy event_bits: {bits:?}")
+            }
+            for bit in bits.iter() {
+                to.set_evbit(bit).unwrap();
+            }
+        }
+
+        if let Ok(bits) = from.relative_bits() {
+            if debug {
+                println!("Copy relative_bits: {bits:?}")
+            }
+            for bit in bits.iter() {
+                to.set_relbit(bit).unwrap();
+            }
+        }
+
+        // FIX: - TheClicker: kernel bug: device has min == max on ABS_VOLUME
+        // if let Ok(bits) = from.absolute_bits() {
+        //     if debug {
+        //         println!("Copy absolute_bits: {bits:?}")
+        //     }
+        //     for bit in bits.iter() {
+        //         to.set_absbit(bit).unwrap();
+        //     }
+        // }
+
+        if let Ok(bits) = from.misc_bits() {
+            if debug {
+                println!("Copy misc_bits: {bits:?}")
+            }
+            for bit in bits.iter() {
+                to.set_mscbit(bit).unwrap();
+            }
+        }
+
+        if let Ok(bits) = from.key_bits() {
+            if debug {
+                println!("Copy key_bits: {bits:?}")
+            }
+            for bit in bits.iter() {
+                to.set_keybit(bit).unwrap();
+            }
+        }
+    }
+
+    pub fn create(&self) {
+        self.handler
+            .create(
+                &InputId {
+                    bustype: BUS_USB,
+                    vendor: VENDOR,
+                    product: PRODUCT,
+                    version: VERSION,
+                },
+                self.name.as_bytes(),
+                input_linux::sys::FF_MAX_EFFECTS as u32,
+                &[],
+            )
+            .unwrap();
+    }
+
+    pub fn write(&self, events: &[input_event]) -> io::Result<usize> {
+        self.handler.write(events)
     }
 
     pub fn send_key(&self, key: Key, state: KeyState) {

@@ -5,13 +5,14 @@ pub use args::Args;
 
 use std::{
     io::{stdout, IsTerminal, Write},
+    os::fd::AsRawFd,
     path::PathBuf,
     sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
 
-pub use device::{Device, DeviceType};
+pub use device::{DeviceType, InputDevice, OutputDevice};
 use input_linux::{sys::input_event, Key, KeyState};
 
 pub struct KeyCode(u16);
@@ -129,10 +130,82 @@ impl StateNormal {
     }
 }
 
+pub struct StateLegacy {
+    cooldown: Duration,
+    cooldown_pr: Duration,
+}
+
+impl StateLegacy {
+    fn run(self, shared: Shared) {
+        let (transmitter, receiver) = mpsc::channel::<AutoclickerState>();
+
+        let input = shared.input;
+
+        let fd = input.handler.as_inner().as_raw_fd();
+        let mut data: [u8; 3] = [0; 3];
+        let mut state = AutoclickerState {
+            lock: true,
+            ..Default::default()
+        };
+        transmitter.send(state).unwrap();
+
+        let mut old_left = 0;
+        let mut old_right = 0;
+        let mut old_middle = 0;
+
+        std::thread::spawn(move || loop {
+            let Ok(len) = nix::unistd::read(fd, &mut data) else {
+                panic!("Cannot read from input device!");
+            };
+
+            if len != 3 {
+                continue;
+            }
+
+            let left = data[0] & 1;
+            let right = (data[0] >> 1) & 1;
+            let middle = (data[0] >> 2) & 1;
+
+            let old_state = state;
+
+            if !state.lock {
+                for (value, old_value, state) in [
+                    (left, old_left, &mut state.left),
+                    (right, old_right, &mut state.right),
+                ] {
+                    if value == 1 && old_value == 0 {
+                        *state = !*state;
+                    }
+                }
+            }
+
+            if middle == 1 && old_middle == 0 {
+                state.lock = !state.lock;
+            }
+
+            old_left = left;
+            old_right = right;
+            old_middle = middle;
+
+            if old_state != state {
+                transmitter.send(state).unwrap();
+            }
+        });
+
+        autoclicker(
+            shared.beep,
+            receiver,
+            &shared.output,
+            self.cooldown,
+            self.cooldown_pr,
+        );
+    }
+}
+
 fn autoclicker(
     beep: bool,
     receiver: std::sync::mpsc::Receiver<AutoclickerState>,
-    output: &Device,
+    output: &OutputDevice,
     cooldown: Duration,
     cooldown_pr: Duration,
 ) {
@@ -180,14 +253,14 @@ fn autoclicker(
 
 pub enum Variant {
     Normal(StateNormal),
-    Legacy {},
+    Legacy(StateLegacy),
 }
 
 impl Variant {
     pub fn run(self, shared: Shared) {
         match self {
             Variant::Normal(state_normal) => state_normal.run(shared),
-            Variant::Legacy {} => todo!(),
+            Variant::Legacy(state_legacy) => state_legacy.run(shared),
         }
     }
 }
@@ -195,8 +268,8 @@ impl Variant {
 pub struct Shared {
     debug: bool,
     beep: bool,
-    input: Device,
-    output: Arc<Device>,
+    input: InputDevice,
+    output: Arc<OutputDevice>,
 }
 
 pub struct TheClicker {
@@ -212,7 +285,7 @@ impl TheClicker {
             command,
         }: Args,
     ) -> Self {
-        let output = Device::uinput_open(PathBuf::from("/dev/uinput"), "TheClicker").unwrap();
+        let output = OutputDevice::uinput_open(PathBuf::from("/dev/uinput"), "TheClicker").unwrap();
         output.add_mouse_attributes();
 
         let command = command.unwrap_or_else(command_from_user_input);
@@ -247,27 +320,11 @@ impl TheClicker {
                 }
                 println!("`");
 
-                let input = 'try_set_input: {
-                    if device_query.is_empty() {
-                        eprintln!("Device query is empty!");
-                        std::process::exit(1);
-                    }
-
-                    if device_query.starts_with('/') {
-                        let Ok(device) = Device::dev_open(PathBuf::from(&device_query)) else {
-                            eprintln!("Cannot open device: {device_query}");
-                            std::process::exit(2);
-                        };
-                        break 'try_set_input device;
-                    } else {
-                        let Some(device) = Device::find_device(&device_query) else {
-                            eprintln!("Cannot find device: {device_query}");
-
-                            std::process::exit(3);
-                        };
-                        break 'try_set_input device;
-                    }
-                };
+                let input = input_device_from_query(device_query);
+                if input.filename.starts_with("mouse") && input.filename.as_str() == "mice" {
+                    eprintln!("Use the run-legacy for legacy devices");
+                    std::process::exit(4);
+                }
 
                 if grab {
                     output.copy_attributes(debug, &input);
@@ -294,12 +351,63 @@ impl TheClicker {
                     }),
                 }
             }
-            args::Command::RunLegecy {} => todo!(),
+            args::Command::RunLegacy {
+                device_query,
+                cooldown,
+                cooldown_press_release,
+            } => {
+                println!("run-legacy -d{device_query:?} -c{cooldown} -C{cooldown_press_release}`");
+
+                let input = input_device_from_query(device_query);
+                if input.filename.as_str() == "mice" {
+                    eprintln!("You cannot use the /dev/input/mice, because receivers events from all other /dev/input/mouse{{N}}");
+                    std::process::exit(5);
+                }
+
+                output.create();
+
+                Self {
+                    shared: Shared {
+                        debug,
+                        beep,
+                        input,
+                        output: Arc::new(output),
+                    },
+                    variant: Variant::Legacy(StateLegacy {
+                        cooldown: Duration::from_millis(cooldown),
+                        cooldown_pr: Duration::from_millis(cooldown_press_release),
+                    }),
+                }
+            }
         }
     }
 
     pub fn main_loop(self) {
         self.variant.run(self.shared);
+    }
+}
+
+fn input_device_from_query(device_query: String) -> InputDevice {
+    'try_set_input: {
+        if device_query.is_empty() {
+            eprintln!("Device query is empty!");
+            std::process::exit(1);
+        }
+
+        if device_query.starts_with('/') {
+            let Ok(device) = InputDevice::dev_open(PathBuf::from(&device_query)) else {
+                eprintln!("Cannot open device: {device_query}");
+                std::process::exit(2);
+            };
+            break 'try_set_input device;
+        } else {
+            let Some(device) = InputDevice::find_device(&device_query) else {
+                eprintln!("Cannot find device: {device_query}");
+
+                std::process::exit(3);
+            };
+            break 'try_set_input device;
+        }
     }
 }
 
@@ -331,19 +439,26 @@ fn print_active(toggle: &AutoclickerState) {
 }
 
 fn command_from_user_input() -> args::Command {
-    let input_device = Device::select_device();
+    let input_device = InputDevice::select_device();
 
     println!("Device name: {}", input_device.name);
 
-    let legacy =
-        input_device.filename.starts_with("mouse") || input_device.filename.starts_with("mice");
+    let legacy = input_device.filename.starts_with("mouse");
 
     if legacy {
-        eprintln!("\x1B[1;31mThe legacy interface is not implemented, you cannot use `/dev/input/mouse{{N}}` or `/dev/input/mice`!\x1B[0;39m");
-        unimplemented!();
+        eprintln!("\x1B[1;31mUsing legacy interface for PS/2 device\x1B[0;39m");
+        let cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
+        let cooldown_press_release =
+            choose_usize("Choose cooldown between press and release", Some(0)) as u64;
+
+        args::Command::RunLegacy {
+            device_query: input_device.path.to_str().unwrap().to_owned(),
+            cooldown,
+            cooldown_press_release,
+        }
     } else {
         let lock_unlock_bind = choose_yes(
-            "Lock Unlock mode, usefull for mouse without side buttons",
+            "Lock Unlock mode, useful for mouse without side buttons",
             false,
         )
         .then(|| choose_key(&input_device, "lock_unlock_bind"));
@@ -351,12 +466,12 @@ fn command_from_user_input() -> args::Command {
         let right_bind = choose_key(&input_device, "right_bind");
         let hold = choose_yes("You want to hold the bind / active hold_mode?", true);
         println!("\x1B[1;33mWarning: if you enable grab mode you can get softlocked\x1B[1;39m, if the compositor will not use TheClicker device.");
-        println!("If the device input is grabed, the input device will be emulated by TheClicker, and when you press a binding that will not be sent");
-        let grab = choose_yes("You want to grab the input device?", false);
+        println!("If the device input is grabbed, the input device will be emulated by TheClicker, and when you press a binding that will not be sent");
+        let grab = choose_yes("You want to grab the input device?", true);
         println!("Grab: {grab}");
-        let cooldown = choose_usize("Choose cooldown, the min is 25", 25) as u64;
+        let cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
         let cooldown_press_release =
-            choose_usize("Choose cooldown between press and release", 0) as u64;
+            choose_usize("Choose cooldown between press and release", Some(0)) as u64;
 
         args::Command::Run {
             left_bind,
@@ -371,7 +486,7 @@ fn command_from_user_input() -> args::Command {
     }
 }
 
-fn choose_key(input_device: &Device, name: &str) -> u16 {
+fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
     let mut events: [input_linux::sys::input_event; 1] = unsafe { std::mem::zeroed() };
     println!("Waiting for key presses from the selected device");
     _ = input_device.grab(true);
@@ -413,9 +528,16 @@ fn choose_yes(message: impl std::fmt::Display, default: bool) -> bool {
         || (default && response.is_empty())
 }
 
-fn choose_usize(message: impl std::fmt::Display, default: usize) -> usize {
+fn choose_usize(message: impl std::fmt::Display, default: Option<usize>) -> usize {
     loop {
-        print!("\x1B[1;39m{message} [\x1B[1;32m{default}\x1B[0;39m]\x1B[0;39m: \x1B[1;32m",);
+        print!(
+            "\x1B[1;39m{message} {} \x1B[1;32m",
+            if let Some(default) = default {
+                format!("[\x1B[1;32m{default}\x1B[0;39m]\x1B[0;39m:")
+            } else {
+                "->".to_owned()
+            }
+        );
         _ = std::io::stdout().flush();
         let response = std::io::stdin()
             .lines()
@@ -425,8 +547,10 @@ fn choose_usize(message: impl std::fmt::Display, default: usize) -> usize {
         print!("\x1B[0;39m");
         _ = std::io::stdout().flush();
 
-        if response.is_empty() {
-            return default;
+        if let Some(default) = default {
+            if response.is_empty() {
+                return default;
+            }
         }
 
         let Ok(num) = response.parse::<usize>() else {
