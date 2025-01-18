@@ -20,6 +20,13 @@ pub enum Command {
         #[arg(short)]
         right_bind: u16,
 
+        /// Bind lock/unlock to keycode
+        /// Mouse: 274 ButtonMiddle
+        /// With this you can bind to the lefr and right button, and the bindings will be used when is unlocked.
+        /// Useful for mouses without side buttons.
+        #[arg(short = 'T')]
+        lock_unlock_bind: Option<u16>,
+
         /// Hold mode, when a keybind is pressed the autoclicker will be active until the keybind release
         #[arg(short = 'H', default_value_t = false)]
         hold: bool,

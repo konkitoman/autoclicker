@@ -28,17 +28,21 @@ impl std::fmt::Display for KeyCode {
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
-pub struct ToggleStates {
+pub struct AutoclickerState {
     ///Primary click
     left: bool,
 
-    //Secundary click
+    //Secondery click
     right: bool,
+
+    // If is locked
+    lock: bool,
 }
 
 pub struct StateNormal {
     left_bind: u16,
     right_bind: u16,
+    lock_unlock_bind: Option<u16>,
 
     hold: bool,
     grab: bool,
@@ -49,7 +53,7 @@ pub struct StateNormal {
 
 impl StateNormal {
     pub fn run(self, shared: Shared) {
-        let (transmitter, receiver) = mpsc::channel::<ToggleStates>();
+        let (transmitter, receiver) = mpsc::channel::<AutoclickerState>();
 
         let mut events: [input_event; 1] = unsafe { std::mem::zeroed() };
         let input = shared.input;
@@ -61,8 +65,11 @@ impl StateNormal {
         let debug = shared.debug;
         let grab = self.grab;
 
-        let mut state = ToggleStates::default();
+        let mut state = AutoclickerState::default();
         let hold = self.hold;
+
+        state.lock = self.lock_unlock_bind.is_some();
+        _ = transmitter.send(state);
 
         thread::spawn(move || loop {
             input.read(&mut events).unwrap();
@@ -76,16 +83,27 @@ impl StateNormal {
                 let old_state = state;
 
                 let pressed = matches!(event.value, 1 | 2);
-                for (bind, s) in [(left_bind, &mut state.left), (right_bind, &mut state.right)] {
-                    if event.code == bind {
-                        if hold {
-                            if pressed != *s {
-                                *s = pressed;
+
+                if !state.lock {
+                    for (bind, state) in
+                        [(left_bind, &mut state.left), (right_bind, &mut state.right)]
+                    {
+                        if event.code == bind {
+                            if hold {
+                                if pressed != *state {
+                                    *state = pressed;
+                                }
+                            } else if pressed {
+                                *state = !*state;
                             }
-                        } else if pressed {
-                            *s = !*s;
+                            used = true;
                         }
-                        used = true;
+                    }
+                }
+
+                if let Some(bind) = self.lock_unlock_bind {
+                    if event.code == bind && pressed {
+                        state.lock = !state.lock;
                     }
                 }
 
@@ -101,48 +119,62 @@ impl StateNormal {
             }
         });
 
-        let mut toggle = ToggleStates::default();
-        let beep = shared.beep;
-        println!();
-        print_active(&toggle);
+        autoclicker(
+            shared.beep,
+            receiver,
+            &shared.output,
+            self.cooldown,
+            self.cooldown_pr,
+        );
+    }
+}
 
-        let output = shared.output;
-        loop {
-            if let Some(recv) = if toggle.left | toggle.right {
-                receiver.try_recv().ok()
-            } else {
-                receiver.recv().ok()
-            } {
-                toggle = recv;
+fn autoclicker(
+    beep: bool,
+    receiver: std::sync::mpsc::Receiver<AutoclickerState>,
+    output: &Device,
+    cooldown: Duration,
+    cooldown_pr: Duration,
+) {
+    let mut toggle = AutoclickerState::default();
+    println!();
+    print_active(&toggle);
 
-                if beep {
-                    // ansi beep sound
-                    print!("\x07");
-                }
+    loop {
+        if let Some(recv) = if toggle.left | toggle.right {
+            receiver.try_recv().ok()
+        } else {
+            receiver.recv().ok()
+        } {
+            toggle = recv;
 
-                print_active(&toggle);
+            if beep {
+                // ansi beep sound
+                print!("\x07");
             }
 
-            if toggle.left {
-                output.send_key(Key::ButtonLeft, KeyState::PRESSED);
-            }
-            if toggle.right {
-                output.send_key(Key::ButtonRight, KeyState::PRESSED);
-            }
-
-            if !self.cooldown_pr.is_zero() {
-                thread::sleep(self.cooldown_pr);
-            }
-
-            if toggle.left {
-                output.send_key(Key::ButtonLeft, KeyState::RELEASED);
-            }
-
-            if toggle.right {
-                output.send_key(Key::ButtonRight, KeyState::RELEASED);
-            }
-            thread::sleep(self.cooldown);
+            print_active(&toggle);
         }
+
+        if toggle.left {
+            output.send_key(Key::ButtonLeft, KeyState::PRESSED);
+        }
+        if toggle.right {
+            output.send_key(Key::ButtonRight, KeyState::PRESSED);
+        }
+
+        if !cooldown_pr.is_zero() {
+            thread::sleep(cooldown_pr);
+        }
+
+        if toggle.left {
+            output.send_key(Key::ButtonLeft, KeyState::RELEASED);
+        }
+
+        if toggle.right {
+            output.send_key(Key::ButtonRight, KeyState::RELEASED);
+        }
+        thread::sleep(cooldown);
     }
 }
 
@@ -197,12 +229,16 @@ impl TheClicker {
                 device_query,
                 left_bind,
                 right_bind,
+                lock_unlock_bind,
                 hold,
                 grab,
                 cooldown,
                 cooldown_press_release,
             } => {
                 print!("run -d{device_query:?} -l{left_bind} -r{right_bind} -c{cooldown} -C{cooldown_press_release}");
+                if let Some(bind) = lock_unlock_bind {
+                    print!(" -T{bind}")
+                }
                 if hold {
                     print!(" -H")
                 }
@@ -250,6 +286,7 @@ impl TheClicker {
                     variant: Variant::Normal(StateNormal {
                         left_bind,
                         right_bind,
+                        lock_unlock_bind,
                         hold,
                         grab,
                         cooldown: Duration::from_millis(cooldown),
@@ -266,7 +303,7 @@ impl TheClicker {
     }
 }
 
-fn print_active(toggle: &ToggleStates) {
+fn print_active(toggle: &AutoclickerState) {
     let is_terminal = stdout().is_terminal();
 
     if is_terminal {
@@ -274,8 +311,11 @@ fn print_active(toggle: &ToggleStates) {
     }
 
     print!("Active: ");
+    if toggle.lock {
+        print!("LOCKED: ")
+    }
     if toggle.left {
-        print!("left")
+        print!("left ")
     }
     if toggle.right {
         if toggle.left {
@@ -302,6 +342,11 @@ fn command_from_user_input() -> args::Command {
         eprintln!("\x1B[1;31mThe legacy interface is not implemented, you cannot use `/dev/input/mouse{{N}}` or `/dev/input/mice`!\x1B[0;39m");
         unimplemented!();
     } else {
+        let lock_unlock_bind = choose_yes(
+            "Lock Unlock mode, usefull for mouse without side buttons",
+            false,
+        )
+        .then(|| choose_key(&input_device, "lock_unlock_bind"));
         let left_bind = choose_key(&input_device, "left_bind");
         let right_bind = choose_key(&input_device, "right_bind");
         let hold = choose_yes("You want to hold the bind / active hold_mode?", true);
@@ -318,6 +363,7 @@ fn command_from_user_input() -> args::Command {
             right_bind,
             hold,
             grab,
+            lock_unlock_bind,
             cooldown,
             cooldown_press_release,
             device_query: input_device.path.to_str().unwrap().to_owned(),
@@ -328,6 +374,7 @@ fn command_from_user_input() -> args::Command {
 fn choose_key(input_device: &Device, name: &str) -> u16 {
     let mut events: [input_linux::sys::input_event; 1] = unsafe { std::mem::zeroed() };
     println!("Waiting for key presses from the selected device");
+    _ = input_device.grab(true);
     loop {
         input_device.empty_read_buffer();
         println!("Choose key for {name}:");
@@ -338,6 +385,7 @@ fn choose_key(input_device: &Device, name: &str) -> u16 {
                 }
             }
         }
+        _ = input_device.grab(false);
 
         println!("\t{}", KeyCode(events[0].code));
 
