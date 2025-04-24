@@ -15,6 +15,8 @@ use std::{
 pub use device::{DeviceType, InputDevice, OutputDevice};
 use input_linux::{sys::input_event, Key, KeyState};
 
+const WAIT_KEY_RELEASE: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub struct KeyCode(u16);
 
 impl std::fmt::Display for KeyCode {
@@ -473,6 +475,8 @@ fn command_from_user_input() -> args::Command {
         let cooldown_press_release =
             choose_usize("Choose cooldown between press and release", Some(0)) as u64;
 
+        std::thread::sleep(WAIT_KEY_RELEASE);
+
         args::Command::Run {
             left_bind,
             right_bind,
@@ -488,6 +492,7 @@ fn command_from_user_input() -> args::Command {
 
 fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
     let mut events: [input_linux::sys::input_event; 1] = unsafe { std::mem::zeroed() };
+    std::thread::sleep(WAIT_KEY_RELEASE);
     println!("\x1B[1;33mWaiting for key presses from the selected device\x1B[22;39m");
     _ = input_device.grab(true);
     loop {
