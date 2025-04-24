@@ -509,6 +509,14 @@ fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
 
         println!("\t{}", KeyCode(events[0].code));
 
+        if matches!(
+            events[0].code as i32,
+            input_linux::sys::KEY_LEFTCTRL | input_linux::sys::KEY_C
+        ) {
+            println!("\x1B[1;31mThis key is blacklisted\x1B[22;39m");
+            std::process::exit(10);
+        }
+
         if choose_yes("You want to choose this", true) {
             break events[0].code;
         }
