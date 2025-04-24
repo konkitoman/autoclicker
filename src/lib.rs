@@ -488,7 +488,7 @@ fn command_from_user_input() -> args::Command {
 
 fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
     let mut events: [input_linux::sys::input_event; 1] = unsafe { std::mem::zeroed() };
-    println!("Waiting for key presses from the selected device");
+    println!("\x1B[1;33mWaiting for key presses from the selected device\x1B[22;39m");
     _ = input_device.grab(true);
     loop {
         input_device.empty_read_buffer();
