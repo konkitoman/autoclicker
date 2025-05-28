@@ -467,11 +467,17 @@ fn command_from_user_input() -> args::Command {
         let left_bind = choose_key(&input_device, "left_bind");
         let right_bind = choose_key(&input_device, "right_bind");
         let hold = choose_yes("You want to hold the bind / active hold_mode?", true);
-        println!("\x1B[1;33mWarning: if you enable grab mode you can get softlocked\x1B[1;39m, if the compositor will not use TheClicker device.");
+        println!("\x1B[1;33mWarning: if you enable grab mode you can get softlocked\x1B[0;39m, if the compositor will not use TheClicker device.");
         println!("If the device input is grabbed, the input device will be emulated by TheClicker, and when you press a binding that will not be sent");
         let grab = choose_yes("You want to grab the input device?", true);
         println!("Grab: {grab}");
-        let cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
+        let mut cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
+        if cooldown < 25 {
+            cooldown = 25;
+            println!("\x1B[1;39mThe cooldown was set to \x1B[1;32m25\x1B[0;39m");
+            println!("\x1B[1;33mThe linux kernel does not permit more the 40 events from a device per second!\x1B[0;39m");
+            println!("\x1B[;32mIf your kernel permits that, you can bypass this dialog using the command args and modify the -c argument.\x1B[;39m");
+        }
         let cooldown_press_release =
             choose_usize("Choose cooldown between press and release", Some(0)) as u64;
 
