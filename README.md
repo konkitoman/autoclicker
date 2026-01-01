@@ -38,14 +38,8 @@ The binary path will be: `./target/release/theclicker`
 
 Add your user to the input group, (may not work on all systems): `sudo usermod -aG input $USER`
 
-Or try running as root: ```sudo theclicker```
+Or try running as root: 
 
-If it returns: `sudo: theclicker: command not found`, then edit your `/etc/sudoers` file with: `sudo visudo`
+Move the executable to /usr/local/bin: `sudo install -o root -g root -m 0755 $(which theclicker) /usr/local/bin/`
 
-And edit this line:
-
-`Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"`
-
-Add the path of TheClicker to the end like this (replace `youruser`):
-
-`Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/youruser/.cargo/bin/"`
+Execute: `sudo theclicker`
