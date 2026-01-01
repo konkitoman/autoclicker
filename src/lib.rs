@@ -4,16 +4,16 @@ mod device;
 pub use args::Args;
 
 use std::{
-    io::{stdout, IsTerminal, Write},
+    io::{IsTerminal, Write, stdout},
     os::fd::AsRawFd,
     path::PathBuf,
-    sync::{mpsc, Arc},
+    sync::{Arc, mpsc},
     thread,
     time::Duration,
 };
 
 pub use device::{DeviceType, InputDevice, OutputDevice};
-use input_linux::{sys::input_event, Key, KeyState};
+use input_linux::{Key, KeyState, sys::input_event};
 
 const WAIT_KEY_RELEASE: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -32,19 +32,17 @@ impl std::fmt::Display for KeyCode {
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct AutoclickerState {
-    ///Primary click
     left: bool,
-
-    //Secondery click
+    middle: bool,
     right: bool,
-
-    // If is locked
     lock: bool,
 }
 
 pub struct StateNormal {
-    left_bind: u16,
-    right_bind: u16,
+    left_bind: Option<u16>,
+    middle_bind: Option<u16>,
+    right_bind: Option<u16>,
+
     lock_unlock_bind: Option<u16>,
 
     hold: bool,
@@ -63,6 +61,7 @@ impl StateNormal {
         let output = shared.output.clone();
 
         let left_bind = self.left_bind;
+        let middle_bind = self.middle_bind;
         let right_bind = self.right_bind;
 
         let debug = shared.debug;
@@ -74,50 +73,57 @@ impl StateNormal {
         state.lock = self.lock_unlock_bind.is_some();
         _ = transmitter.send(state);
 
-        thread::spawn(move || loop {
-            input.read(&mut events).unwrap();
+        thread::spawn(move || {
+            loop {
+                input.read(&mut events).unwrap();
 
-            for event in events.iter() {
-                if debug {
-                    println!("Event: {:?}", event);
-                }
+                for event in events.iter() {
+                    if debug {
+                        println!("Event: {:?}", event);
+                    }
 
-                let mut used = false;
-                let old_state = state;
+                    let mut used = false;
+                    let old_state = state;
 
-                let pressed = matches!(event.value, 1 | 2);
+                    let pressed = matches!(event.value, 1 | 2);
 
-                if !state.lock {
-                    for (bind, state) in
-                        [(left_bind, &mut state.left), (right_bind, &mut state.right)]
-                    {
-                        if event.code == bind {
-                            if hold {
-                                if pressed != *state {
-                                    *state = pressed;
+                    if !state.lock {
+                        for (bind, state) in [
+                            (left_bind, &mut state.left),
+                            (right_bind, &mut state.right),
+                            (middle_bind, &mut state.middle),
+                        ] {
+                            if let Some(bind) = bind
+                                && event.code == bind
+                            {
+                                if hold {
+                                    if pressed != *state {
+                                        *state = pressed;
+                                    }
+                                } else if pressed {
+                                    *state = !*state;
                                 }
-                            } else if pressed {
-                                *state = !*state;
+                                used = true;
                             }
-                            used = true;
                         }
                     }
-                }
 
-                if let Some(bind) = self.lock_unlock_bind {
-                    if event.code == bind && pressed {
+                    if let Some(bind) = self.lock_unlock_bind
+                        && event.code == bind
+                        && pressed
+                    {
                         state.lock = !state.lock;
                     }
-                }
 
-                if old_state != state {
-                    transmitter.send(state).unwrap();
-                }
+                    if old_state != state {
+                        transmitter.send(state).unwrap();
+                    }
 
-                if grab && !used {
-                    output
-                        .write(&events)
-                        .expect("Cannot write to virtual device!");
+                    if grab && !used {
+                        output
+                            .write(&events)
+                            .expect("Cannot write to virtual device!");
+                    }
                 }
             }
         });
@@ -155,42 +161,45 @@ impl StateLegacy {
         let mut old_right = 0;
         let mut old_middle = 0;
 
-        std::thread::spawn(move || loop {
-            let Ok(len) = nix::unistd::read(fd, &mut data) else {
-                panic!("Cannot read from input device!");
-            };
+        std::thread::spawn(move || {
+            let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+            loop {
+                let Ok(len) = nix::unistd::read(fd, &mut data) else {
+                    panic!("Cannot read from input device!");
+                };
 
-            if len != 3 {
-                continue;
-            }
+                if len != 3 {
+                    continue;
+                }
 
-            let left = data[0] & 1;
-            let right = (data[0] >> 1) & 1;
-            let middle = (data[0] >> 2) & 1;
+                let left = data[0] & 1;
+                let right = (data[0] >> 1) & 1;
+                let middle = (data[0] >> 2) & 1;
 
-            let old_state = state;
+                let old_state = state;
 
-            if !state.lock {
-                for (value, old_value, state) in [
-                    (left, old_left, &mut state.left),
-                    (right, old_right, &mut state.right),
-                ] {
-                    if value == 1 && old_value == 0 {
-                        *state = !*state;
+                if !state.lock {
+                    for (value, old_value, state) in [
+                        (left, old_left, &mut state.left),
+                        (right, old_right, &mut state.right),
+                    ] {
+                        if value == 1 && old_value == 0 {
+                            *state = !*state;
+                        }
                     }
                 }
-            }
 
-            if middle == 1 && old_middle == 0 {
-                state.lock = !state.lock;
-            }
+                if middle == 1 && old_middle == 0 {
+                    state.lock = !state.lock;
+                }
 
-            old_left = left;
-            old_right = right;
-            old_middle = middle;
+                old_left = left;
+                old_right = right;
+                old_middle = middle;
 
-            if old_state != state {
-                transmitter.send(state).unwrap();
+                if old_state != state {
+                    transmitter.send(state).unwrap();
+                }
             }
         });
 
@@ -216,7 +225,7 @@ fn autoclicker(
     print_active(&toggle);
 
     loop {
-        if let Some(recv) = if toggle.left | toggle.right {
+        if let Some(recv) = if toggle.left | toggle.middle | toggle.right {
             receiver.try_recv().ok()
         } else {
             receiver.recv().ok()
@@ -234,6 +243,9 @@ fn autoclicker(
         if toggle.left {
             output.send_key(Key::ButtonLeft, KeyState::PRESSED);
         }
+        if toggle.middle {
+            output.send_key(Key::ButtonMiddle, KeyState::PRESSED);
+        }
         if toggle.right {
             output.send_key(Key::ButtonRight, KeyState::PRESSED);
         }
@@ -245,7 +257,9 @@ fn autoclicker(
         if toggle.left {
             output.send_key(Key::ButtonLeft, KeyState::RELEASED);
         }
-
+        if toggle.middle {
+            output.send_key(Key::ButtonMiddle, KeyState::RELEASED);
+        }
         if toggle.right {
             output.send_key(Key::ButtonRight, KeyState::RELEASED);
         }
@@ -288,7 +302,6 @@ impl TheClicker {
         }: Args,
     ) -> Self {
         let output = OutputDevice::uinput_open(PathBuf::from("/dev/uinput"), "TheClicker").unwrap();
-        output.add_mouse_attributes();
 
         let command = command.unwrap_or_else(command_from_user_input);
 
@@ -303,6 +316,7 @@ impl TheClicker {
             args::Command::Run {
                 device_query,
                 left_bind,
+                middle_bind,
                 right_bind,
                 lock_unlock_bind,
                 hold,
@@ -310,7 +324,18 @@ impl TheClicker {
                 cooldown,
                 cooldown_press_release,
             } => {
-                print!("run -d{device_query:?} -l{left_bind} -r{right_bind} -c{cooldown} -C{cooldown_press_release}");
+                output.add_mouse_attributes(false);
+                print!("run -d{device_query:?} -c{cooldown} -C{cooldown_press_release}");
+
+                if let Some(bind) = left_bind {
+                    print!(" -l{bind}")
+                }
+                if let Some(bind) = middle_bind {
+                    print!(" -m{bind}")
+                }
+                if let Some(bind) = right_bind {
+                    print!(" -r{bind}")
+                }
                 if let Some(bind) = lock_unlock_bind {
                     print!(" -T{bind}")
                 }
@@ -344,6 +369,7 @@ impl TheClicker {
                     },
                     variant: Variant::Normal(StateNormal {
                         left_bind,
+                        middle_bind,
                         right_bind,
                         lock_unlock_bind,
                         hold,
@@ -358,11 +384,14 @@ impl TheClicker {
                 cooldown,
                 cooldown_press_release,
             } => {
+                output.add_mouse_attributes(true);
                 println!("run-legacy -d{device_query:?} -c{cooldown} -C{cooldown_press_release}`");
 
                 let input = input_device_from_query(device_query);
                 if input.filename.as_str() == "mice" {
-                    eprintln!("You cannot use the /dev/input/mice, because receivers events from all other /dev/input/mouse{{N}}");
+                    eprintln!(
+                        "You cannot use the /dev/input/mice, because receivers events from all other /dev/input/mouse{{N}}"
+                    );
                     std::process::exit(5);
                 }
 
@@ -464,19 +493,32 @@ fn command_from_user_input() -> args::Command {
             false,
         )
         .then(|| choose_key(&input_device, "lock_unlock_bind"));
-        let left_bind = choose_key(&input_device, "left_bind");
-        let right_bind = choose_key(&input_device, "right_bind");
+
+        let left_bind = choose_yes("You want a binding for left autoclicker?", true)
+            .then(|| choose_key(&input_device, "left_bind"));
+        let middle_bind = choose_yes("You want a binding for middle autoclicker?", false)
+            .then(|| choose_key(&input_device, "middle_bind"));
+        let right_bind = choose_yes("You want a binding for right autoclicker?", true)
+            .then(|| choose_key(&input_device, "right_bind"));
         let hold = choose_yes("You want to hold the bind / active hold_mode?", true);
-        println!("\x1B[1;33mWarning: if you enable grab mode you can get softlocked\x1B[0;39m, if the compositor will not use TheClicker device.");
-        println!("If the device input is grabbed, the input device will be emulated by TheClicker, and when you press a binding that will not be sent");
+        println!(
+            "\x1B[1;33mWarning: if you enable grab mode you can get softlocked\x1B[0;39m, if the compositor will not use TheClicker device."
+        );
+        println!(
+            "If the device input is grabbed, the input device will be emulated by TheClicker, and when you press a binding that will not be sent"
+        );
         let grab = choose_yes("You want to grab the input device?", true);
         println!("Grab: {grab}");
         let mut cooldown = choose_usize("Choose cooldown, the min is 25", Some(25)) as u64;
         if cooldown < 25 {
             cooldown = 25;
             println!("\x1B[1;39mThe cooldown was set to \x1B[1;32m25\x1B[0;39m");
-            println!("\x1B[1;33mThe linux kernel does not permit more the 40 events from a device per second!\x1B[0;39m");
-            println!("\x1B[;32mIf your kernel permits that, you can bypass this dialog using the command args and modify the -c argument.\x1B[;39m");
+            println!(
+                "\x1B[1;33mThe linux kernel does not permit more the 40 events from a device per second!\x1B[0;39m"
+            );
+            println!(
+                "\x1B[;32mIf your kernel permits that, you can bypass this dialog using the command args and modify the -c argument.\x1B[;39m"
+            );
         }
         let cooldown_press_release =
             choose_usize("Choose cooldown between press and release", Some(0)) as u64;
@@ -486,6 +528,7 @@ fn command_from_user_input() -> args::Command {
         args::Command::Run {
             left_bind,
             right_bind,
+            middle_bind,
             hold,
             grab,
             lock_unlock_bind,
@@ -566,10 +609,10 @@ fn choose_usize(message: impl std::fmt::Display, default: Option<usize>) -> usiz
         print!("\x1B[0;39m");
         _ = std::io::stdout().flush();
 
-        if let Some(default) = default {
-            if response.is_empty() {
-                return default;
-            }
+        if let Some(default) = default
+            && response.is_empty()
+        {
+            return default;
         }
 
         let Ok(num) = response.parse::<usize>() else {

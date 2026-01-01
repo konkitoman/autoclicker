@@ -8,9 +8,9 @@ use std::{
 };
 
 use input_linux::{
-    sys::{input_event, BUS_USB},
     EvdevHandle, EventKind, EventTime, InputEvent, InputId, Key, KeyEvent, KeyState,
     SynchronizeEvent, UInputHandle,
+    sys::{BUS_USB, input_event},
 };
 
 use crate::{choose_usize, choose_yes};
@@ -78,10 +78,10 @@ impl InputDevice {
             .unwrap()
             .filter_map(|res| res.ok())
             .filter_map(|entry| {
-                if let Ok(ty) = entry.file_type() {
-                    if ty.is_dir() {
-                        return None;
-                    }
+                if let Ok(ty) = entry.file_type()
+                    && ty.is_dir()
+                {
+                    return None;
                 }
 
                 if entry.path().file_name().unwrap().to_str().unwrap() == "mice" {
@@ -197,11 +197,14 @@ impl OutputDevice {
         })
     }
 
-    pub fn add_mouse_attributes(&self) {
+    pub fn add_mouse_attributes(&self, legacy: bool) {
         self.handler.set_evbit(EventKind::Key).unwrap();
         self.handler.set_evbit(EventKind::Synchronize).unwrap();
 
         self.handler.set_keybit(Key::ButtonLeft).unwrap();
+        if !legacy {
+            self.handler.set_keybit(Key::ButtonMiddle).unwrap();
+        }
         self.handler.set_keybit(Key::ButtonRight).unwrap();
     }
 

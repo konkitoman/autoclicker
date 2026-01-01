@@ -12,17 +12,23 @@ pub enum Command {
         /// Mouse: 275 ButtonSide
         /// Keyboard: 26 LeftBrace
         #[arg(short)]
-        left_bind: u16,
+        left_bind: Option<u16>,
+
+        /// Bind middle autoclicker to keycode
+        /// Mouse: 274 ButtonMiddle
+        /// Keyboard: 43 Backslash
+        #[arg(short)]
+        middle_bind: Option<u16>,
 
         /// Bind right autoclicker to keycode
         /// Mouse: 276 ButtonExtra
         /// Keyboard: 27 RightBrace
         #[arg(short)]
-        right_bind: u16,
+        right_bind: Option<u16>,
 
         /// Bind lock/unlock to keycode
         /// Mouse: 274 ButtonMiddle
-        /// With this you can bind to the lefr and right button, and the bindings will be used when is unlocked.
+        /// With this you can bind to the left, middle and right button, and the bindings will only be used when is unlocked.
         /// Useful for mouses without side buttons.
         #[arg(short = 'T')]
         lock_unlock_bind: Option<u16>,
