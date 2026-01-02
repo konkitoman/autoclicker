@@ -75,9 +75,17 @@ impl StateNormal {
 
         thread::spawn(move || {
             loop {
-                input.read(&mut events).unwrap();
+                let len = match input.read(&mut events) {
+                    Ok(len) => len,
+                    Err(err) => {
+                        eprintln!("\x1B[1;31mCaptured device error: {err}\x1B[22;39m");
+                        eprintln!("\x1B[1;33mThe Clicker will terminate!\x1B[22;39m");
+                        eprintln!();
+                        std::process::exit(1);
+                    }
+                };
 
-                for event in events.iter() {
+                for event in &events[0..len] {
                     if debug {
                         println!("Event: {:?}", event);
                     }
