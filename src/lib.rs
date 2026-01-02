@@ -555,12 +555,27 @@ fn choose_key(input_device: &InputDevice, name: &str) -> u16 {
     loop {
         input_device.empty_read_buffer();
         println!("Choose key for {name}:");
-        'outer: while let Ok(len) = input_device.read(&mut events) {
-            for event in &events[..len] {
-                if event.type_ == input_linux::sys::EV_KEY as u16 && matches!(event.value, 1 | 2) {
-                    break 'outer;
+        'outer: {
+            let mut result;
+            while let Ok(len) = {
+                result = input_device.read(&mut events);
+                &result
+            } {
+                for event in &events[..*len] {
+                    if event.type_ == input_linux::sys::EV_KEY as u16
+                        && matches!(event.value, 1 | 2)
+                    {
+                        break 'outer;
+                    }
                 }
             }
+            eprintln!(
+                "\x1B[1;31mCaptured device error: {}\x1B[22;39m",
+                result.err().unwrap()
+            );
+            eprintln!("\x1B[1;33mThe Clicker will terminate!\x1B[22;39m");
+            eprintln!();
+            std::process::exit(1);
         }
         _ = input_device.grab(false);
 
