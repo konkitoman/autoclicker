@@ -9,6 +9,8 @@ Works on both xorg and wayland by utilising uinput and evdev!
 ## Install
 ```cargo install theclicker```
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/theclicker.svg?exclude_unsupported=1)](https://repology.org/project/theclicker/versions)
+
 ## To run TheClicker
 
 Run `theclicker`
