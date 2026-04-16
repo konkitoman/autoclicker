@@ -182,7 +182,22 @@ impl OutputDevice {
             Ok(file) => file,
             Err(err) => {
                 println!("Error: {}", err);
-                println!("Not having access to create device, try as root!");
+                match err.raw_os_error() {
+                    Some(13) => {
+                        println!(
+                            "Not having permissions to create device, add the input group to your use then logout or run as root!"
+                        );
+                    }
+                    Some(19) => {
+                        println!("You probably updated your system and didn't reboot!");
+                        println!(
+                            "Or you are using an linux kernel compiled without the uinput module!"
+                        );
+                    }
+                    _ => {
+                        println!("Not having access to create device, try as root!");
+                    }
+                }
                 exit(1);
             }
         };
